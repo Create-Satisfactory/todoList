@@ -471,5 +471,10 @@
   "h2.schema.comment.column.storage_meta.value": "Metadata value.",
   "h2.schema.comment.column.storage_meta.updated_at": "Metadata last update timestamp.",
   "command.todolist.status.incomplete": "incomplete",
-  "command.todolist.status.completed": "completed"
+  "command.todolist.status.completed": "completed",
+  "gui.todolist.satisfactory.title": "To-Do List",
+  "gui.todolist.public_notes": "Public Notes",
+  "gui.todolist.private_notes": "Private Notes",
+  "gui.todolist.recipes": "Recipes",
+  "gui.todolist.clear_list": "Clear List"
 }

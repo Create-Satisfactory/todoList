@@ -26,25 +26,31 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeManager;
 
 /**
- * Renders the Satisfactory-inspired FICSIT To-Do List overlay on the HUD.
+ * Renders the Satisfactory-inspired FICSIT To-Do List overlay on the HUD:
+ * - Public Notes (Synced via FTB Teams)
+ * - Private Notes (Personal)
+ * - Recipes (Pinned items/buildings with live inventory progress bars)
  */
 public class TodoHudRenderer {
-    private static final long HUD_MODEL_REFRESH_INTERVAL_MS = 1000L;
+    private static final long HUD_MODEL_REFRESH_INTERVAL_MS = 500L;
 
-    // Authentic Satisfactory FICSIT HUD Palette
-    private static final int COL_FICSIT_HEADER_BG = 0xF225272B;
-    private static final int COL_FICSIT_BODY_BG   = 0xD9141619;
-    private static final int COL_FICSIT_SUBHEADER = 0xE62E3137;
+    // Authentic Satisfactory HUD Palette
+    private static final int COL_FICSIT_HEADER_BG = 0xE625272B;
+    private static final int COL_FICSIT_BODY_BG   = 0xB8141619;
+    private static final int COL_FICSIT_SUBHEADER = 0xCC32353C;
     private static final int COL_FICSIT_ORANGE    = 0xFFE59344;
-    private static final int COL_FICSIT_CYAN      = 0xFF4FC3F7;
     private static final int COL_FICSIT_GREEN     = 0xFF66BB6A;
-    private static final int COL_FICSIT_BORDER    = 0xFF32353C;
+    private static final int COL_FICSIT_BORDER    = 0x8832353C;
 
     private enum HudViewMode {
         PERSONAL,
@@ -53,9 +59,6 @@ public class TodoHudRenderer {
         TEAM_ASSIGNED
     }
 
-    /**
-     * Parsed item requirement from a task tag (e.g. "minecraft:iron_ingot:64" or "create:cogwheel*16").
-     */
     public record ParsedItemRequirement(Item item, ItemStack stack, int neededCount) {}
 
     private final Minecraft client;
@@ -85,7 +88,6 @@ public class TodoHudRenderer {
     private String cachedActiveProjectId = "";
     private String cachedPlayerUuid = "";
 
-    private static final Component SEPARATOR_COMPLETED = Component.translatable("hud.todolist.separator.completed");
     private static final Component ELLIPSIS = Component.literal("...");
     private static final float HUD_LABEL_SCALE = 0.85F;
     private static final int HUD_LABEL_MAX_CHARS = 8;
@@ -207,13 +209,96 @@ public class TodoHudRenderer {
     }
 
     /**
-     * Parses an optional item requirement from a Task's tags (e.g., "minecraft:iron_ingot:64", "iron_ingot*32", "create:cogwheel:16").
+     * Parses all item requirements from a Task's tags (e.g., "minecraft:iron_ingot:64", "iron_ingot*32", "create:cogwheel:16").
      */
-    public static ParsedItemRequirement parseTaskItemRequirement(Task task) {
-        if (task == null || task.getTags() == null) return null;
+    public record ResolvedRecipeInfo(
+            Item outputItem,
+            ItemStack outputStack,
+            int outputCountPerCraft,
+            List<ParsedItemRequirement> ingredients
+    ) {}
+
+    /**
+     * Looks up the crafting recipe for a target item in the client's RecipeManager
+     * and aggregates its required ingredients (e.g. Iron Bars -> 6x Iron Ingot).
+     */
+    public static ResolvedRecipeInfo lookupCraftingRecipe(Item targetItem) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null || targetItem == null || targetItem == Items.AIR) {
+            return null;
+        }
+        try {
+            RecipeManager rm = mc.level.getRecipeManager();
+            var registryAccess = mc.level.registryAccess();
+
+            RecipeHolder<?> bestHolder = null;
+            for (RecipeHolder<?> holder : rm.getRecipes()) {
+                ItemStack result = holder.value().getResultItem(registryAccess);
+                if (result != null && !result.isEmpty() && result.getItem() == targetItem) {
+                    if (!holder.value().getIngredients().isEmpty()) {
+                        bestHolder = holder;
+                        // Prefer standard vanilla/mod namespace recipe over nugget unpacking recipes
+                        if (!holder.id().getPath().contains("from_block") && !holder.id().getPath().contains("from_nugget")) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (bestHolder != null) {
+                ItemStack resultStack = bestHolder.value().getResultItem(registryAccess);
+                int outCount = Math.max(1, resultStack.getCount());
+
+                Map<Item, Integer> counts = new LinkedHashMap<>();
+                Map<Item, ItemStack> stacks = new LinkedHashMap<>();
+
+                for (Ingredient ing : bestHolder.value().getIngredients()) {
+                    if (ing == null || ing.isEmpty()) continue;
+                    ItemStack[] matching = ing.getItems();
+                    if (matching.length > 0 && !matching[0].isEmpty()) {
+                        Item ingItem = matching[0].getItem();
+                        counts.put(ingItem, counts.getOrDefault(ingItem, 0) + 1);
+                        stacks.putIfAbsent(ingItem, new ItemStack(ingItem));
+                    }
+                }
+
+                if (!counts.isEmpty()) {
+                    List<ParsedItemRequirement> reqs = new ArrayList<>();
+                    for (Map.Entry<Item, Integer> entry : counts.entrySet()) {
+                        reqs.add(new ParsedItemRequirement(entry.getKey(), stacks.get(entry.getKey()), entry.getValue()));
+                    }
+                    return new ResolvedRecipeInfo(targetItem, new ItemStack(targetItem), outCount, reqs);
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * Parses item requirements from a Task's tags.
+     * If a single target item is specified (and not marked "raw:"), it automatically expands
+     * into that item's Crafting Recipe ingredients!
+     */
+    public static List<ParsedItemRequirement> parseAllTaskItemRequirements(Task task) {
+        List<ParsedItemRequirement> explicitList = new ArrayList<>();
+        if (task == null || task.getTags() == null) return explicitList;
+
+        boolean expandRecipe = true;
+        for (String t : task.getTags()) {
+            if ("raw_ingredients".equalsIgnoreCase(t)) {
+                expandRecipe = false;
+                break;
+            }
+        }
+
         for (String rawTag : task.getTags()) {
             if (rawTag == null || rawTag.isBlank()) continue;
             String tag = rawTag.trim().toLowerCase();
+            if (tag.equals("public_note") || tag.equals("private_note") || tag.equals("note")
+                    || tag.equals("recipe") || tag.equals("raw_ingredients") || tag.startsWith("qty:")
+                    || tag.startsWith("target_item:") || tag.startsWith("out_per_craft:")) {
+                continue;
+            }
             if (tag.startsWith("item:")) {
                 tag = tag.substring(5).trim();
             }
@@ -250,17 +335,78 @@ public class TodoHudRenderer {
             if (!itemPart.contains(":")) {
                 itemPart = "minecraft:" + itemPart;
             }
-            try {
-                ResourceLocation id = ResourceLocation.parse(itemPart);
-                if (BuiltInRegistries.ITEM.containsKey(id)) {
-                    Item item = BuiltInRegistries.ITEM.get(id);
-                    if (item != Items.AIR) {
-                        return new ParsedItemRequirement(item, new ItemStack(item), qty);
-                    }
-                }
-            } catch (Exception ignored) {}
+
+            Item matchedItem = findItemByIdOrDisplayName(itemPart);
+            if (matchedItem != null && matchedItem != Items.AIR) {
+                explicitList.add(new ParsedItemRequirement(matchedItem, new ItemStack(matchedItem), qty));
+            }
         }
-        return null;
+
+        // If the task has a single target item and expandRecipe is true, automatically resolve its Crafting Recipe ingredients!
+        if (expandRecipe && explicitList.size() == 1) {
+            ParsedItemRequirement target = explicitList.get(0);
+            ResolvedRecipeInfo recipeInfo = lookupCraftingRecipe(target.item());
+            if (recipeInfo != null && !recipeInfo.ingredients().isEmpty()) {
+                return recipeInfo.ingredients();
+            }
+        }
+
+        return explicitList;
+    }
+
+    /**
+     * Resolves an Item by either its ResourceLocation ("minecraft:iron_bars") or its English display name ("iron bars").
+     */
+    public static Item findItemByIdOrDisplayName(String query) {
+        if (query == null || query.isBlank()) return Items.AIR;
+        String clean = query.trim().toLowerCase();
+        try {
+            ResourceLocation id = ResourceLocation.parse(clean.replace(' ', '_'));
+            if (BuiltInRegistries.ITEM.containsKey(id)) {
+                return BuiltInRegistries.ITEM.get(id);
+            }
+        } catch (Exception ignored) {}
+
+        String normalizedSearch = clean.replace("minecraft:", "").replace('_', ' ').trim();
+        for (Item item : BuiltInRegistries.ITEM) {
+            if (item == Items.AIR) continue;
+            String display = item.getDescription().getString().toLowerCase().trim();
+            if (display.equals(normalizedSearch)) {
+                return item;
+            }
+        }
+        return Items.AIR;
+    }
+
+    public static ParsedItemRequirement parseTaskItemRequirement(Task task) {
+        List<ParsedItemRequirement> all = parseAllTaskItemRequirements(task);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    public static boolean isRecipeTask(Task task) {
+        if (task == null) return false;
+        if (!parseAllTaskItemRequirements(task).isEmpty()) return true;
+        if (task.getTags() != null) {
+            for (String t : task.getTags()) {
+                if ("recipe".equalsIgnoreCase(t)) return true;
+                if ("public_note".equalsIgnoreCase(t) || "private_note".equalsIgnoreCase(t) || "note".equalsIgnoreCase(t)) {
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static int parseMultiplierFromTags(Task task) {
+        if (task == null || task.getTags() == null) return 1;
+        for (String t : task.getTags()) {
+            if (t != null && t.startsWith("qty:")) {
+                try {
+                    return Math.max(1, Integer.parseInt(t.substring(4).trim()));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return 1;
     }
 
     public static int countItemInPlayerInventory(Player player, Item target) {
@@ -276,7 +422,7 @@ public class TodoHudRenderer {
     }
 
     public void render(GuiGraphics context, float delta) {
-        if (client.options.hideGui) return;
+        if (client.options.hideGui || client.screen instanceof com.todolist.gui.ConfigScreen) return;
 
         ModConfig config = ModConfig.getInstance();
         if (!config.isEnableHud() || !ClientBridge.ops().isHudVisible()) return;
@@ -285,22 +431,278 @@ public class TodoHudRenderer {
         Project.Scope scope = getScopeByView(viewMode);
         refreshHudModelIfNeeded(config, viewMode, scope);
 
-        if (cachedPendingTasks.isEmpty() && cachedDoneTasks.isEmpty() && !config.isHudShowWhenEmpty()) return;
+        List<Task> publicNotes = getPublicNoteTasks();
+        List<Task> privateNotes = getPrivateNoteTasks();
+        List<Task> recipeTasks = getRecipeTasks();
 
-        List<Task> pending = cachedPendingTasks;
-        List<Task> done = cachedDoneTasks;
-        HudRenderPlan renderPlan = buildRenderPlan(config, pending, done, cachedPendingTotalCount, cachedDoneTotalCount);
-        int panelHeight = calculatePanelHeight(config, pending, done);
+        if (publicNotes.isEmpty() && privateNotes.isEmpty() && recipeTasks.isEmpty() && !config.isHudShowWhenEmpty()) {
+            return;
+        }
 
         int screenWidth = client.getWindow().getGuiScaledWidth();
         int screenHeight = client.getWindow().getGuiScaledHeight();
-        int hudWidth = config.getHudWidth();
+        int hudWidth = Math.max(165, config.getHudWidth());
+        int panelHeight = calculateSatisfactoryHudHeight(hudWidth, publicNotes, privateNotes, recipeTasks);
 
         ModConfig.HudPlacement placement = config.resolveHudPlacement(screenWidth, screenHeight, hudWidth, panelHeight);
         int x = placement.getX();
         int y = placement.getY();
 
-        renderTaskList(context, x, y, hudWidth, panelHeight, pending, done, renderPlan, config, viewMode);
+        renderSatisfactoryHud(context, x, y, hudWidth, panelHeight, publicNotes, privateNotes, recipeTasks, config);
+    }
+
+    private List<Task> getPublicNoteTasks() {
+        List<Task> teamTasks = loadTasksByScope(Project.Scope.TEAM);
+        List<Task> result = new ArrayList<>();
+        for (Task t : teamTasks) {
+            if (t != null && !t.isCompleted() && !isRecipeTask(t)) {
+                result.add(t);
+            }
+        }
+        return result;
+    }
+
+    private List<Task> getPrivateNoteTasks() {
+        List<Task> personalTasks = loadTasksByScope(Project.Scope.PERSONAL);
+        List<Task> result = new ArrayList<>();
+        for (Task t : personalTasks) {
+            if (t != null && !t.isCompleted() && !isRecipeTask(t)) {
+                result.add(t);
+            }
+        }
+        return result;
+    }
+
+    private List<Task> getRecipeTasks() {
+        List<Task> result = new ArrayList<>();
+        for (Task t : loadTasksByScope(Project.Scope.PERSONAL)) {
+            if (t != null && !t.isCompleted() && isRecipeTask(t)) {
+                result.add(t);
+            }
+        }
+        for (Task t : loadTasksByScope(Project.Scope.TEAM)) {
+            if (t != null && !t.isCompleted() && isRecipeTask(t)) {
+                result.add(t);
+            }
+        }
+        return result;
+    }
+
+    private int calculateSatisfactoryHudHeight(int width, List<Task> publicNotes, List<Task> privateNotes, List<Task> recipes) {
+        if (!expanded) {
+            return 28;
+        }
+        int h = 20; // Top Header
+        int innerW = width - 12;
+
+        if (!publicNotes.isEmpty()) {
+            h += 15; // "Public Notes" bar
+            for (Task note : publicNotes) {
+                String text = buildNoteDisplayString(note);
+                List<FormattedCharSequence> lines = client.font.split(Component.literal(text), innerW - 6);
+                h += Math.max(1, lines.size()) * 10 + 4;
+            }
+            h += 2;
+        }
+
+        if (!privateNotes.isEmpty()) {
+            h += 15; // "Private Notes" bar
+            for (Task note : privateNotes) {
+                String text = buildNoteDisplayString(note);
+                List<FormattedCharSequence> lines = client.font.split(Component.literal(text), innerW - 6);
+                h += Math.max(1, lines.size()) * 10 + 4;
+            }
+            h += 2;
+        }
+
+        if (!recipes.isEmpty() || (publicNotes.isEmpty() && privateNotes.isEmpty())) {
+            h += 15; // "Recipes" bar
+            for (Task recipe : recipes) {
+                List<ParsedItemRequirement> reqs = parseAllTaskItemRequirements(recipe);
+                boolean hasSubtitle = recipe.getDescription() != null && !recipe.getDescription().isBlank();
+                h += (hasSubtitle ? 22 : 14); // Title + white line
+                h += Math.max(1, reqs.size()) * 20 + 4;
+            }
+        }
+
+        return Math.max(32, h + 4);
+    }
+
+    private String buildNoteDisplayString(Task note) {
+        if (note == null) return "";
+        String title = note.getTitle() == null ? "" : note.getTitle().trim();
+        String desc = note.getDescription() == null ? "" : note.getDescription().trim();
+        if (!title.isEmpty() && !desc.isEmpty()) {
+            return title + ": " + desc;
+        }
+        return !title.isEmpty() ? title : desc;
+    }
+
+    /**
+     * Renders the authentic Satisfactory To-Do List HUD overlay matching the in-game screenshots.
+     */
+    private void renderSatisfactoryHud(GuiGraphics context, int x, int y, int width, int panelHeight,
+                                       List<Task> publicNotes, List<Task> privateNotes, List<Task> recipes,
+                                       ModConfig config) {
+        float opacity = (float) config.getHudOpacity();
+        int bodyBgColor = applyBackgroundOpacity(COL_FICSIT_BODY_BG, opacity);
+        int headerBgColor = applyBackgroundOpacity(COL_FICSIT_HEADER_BG, Math.min(1.0f, opacity + 0.15f));
+
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+
+        // 1. Dark Translucent Backdrop & Border
+        context.fill(x, y, x + width, y + panelHeight, bodyBgColor);
+        context.renderOutline(x, y, width, panelHeight, applyBackgroundOpacity(COL_FICSIT_BORDER, opacity));
+
+        // 2. Top Header Bar ("≡ To-Do List")
+        int headerH = 16;
+        context.fill(x, y, x + width, y + headerH, headerBgColor);
+        context.fill(x, y + headerH - 1, x + width, y + headerH, toOpaqueColor(COL_FICSIT_ORANGE));
+        context.drawString(client.font, "≡ To-Do List", x + 6, y + 4, toOpaqueColor(0xFFFFFFFF), false);
+
+        int currentY = y + headerH + 3;
+        int innerX = x + 6;
+        int innerW = width - 12;
+
+        if (!expanded) {
+            int totalItems = publicNotes.size() + privateNotes.size() + recipes.size();
+            context.drawString(client.font, totalItems + " active entries [H]", innerX, currentY, toOpaqueColor(0xFFB0B5BC), false);
+            return;
+        }
+
+        // 3. PUBLIC NOTES (FTB Team Shared)
+        if (!publicNotes.isEmpty()) {
+            currentY = renderHudSectionBar(context, innerX, currentY, innerW, "Public Notes");
+            for (Task note : publicNotes) {
+                String text = buildNoteDisplayString(note);
+                for (FormattedCharSequence line : client.font.split(Component.literal(text), innerW - 6)) {
+                    context.drawString(client.font, line, innerX + 3, currentY, toOpaqueColor(0xFFE8ECEF), false);
+                    currentY += 10;
+                }
+                currentY += 4;
+            }
+            currentY += 2;
+        }
+
+        // 4. PRIVATE NOTES (Personal)
+        if (!privateNotes.isEmpty()) {
+            currentY = renderHudSectionBar(context, innerX, currentY, innerW, "Private Notes");
+            for (Task note : privateNotes) {
+                String text = buildNoteDisplayString(note);
+                for (FormattedCharSequence line : client.font.split(Component.literal(text), innerW - 6)) {
+                    context.drawString(client.font, line, innerX + 3, currentY, toOpaqueColor(0xFFD0D5DC), false);
+                    currentY += 10;
+                }
+                currentY += 4;
+            }
+            currentY += 2;
+        }
+
+        // 5. RECIPES (Satisfactory-style Item & Ingredient Checklist)
+        if (!recipes.isEmpty() || (publicNotes.isEmpty() && privateNotes.isEmpty())) {
+            currentY = renderHudSectionBar(context, innerX, currentY, innerW, "Recipes");
+            if (recipes.isEmpty()) {
+                context.drawString(client.font, "No pinned recipes.", innerX + 3, currentY + 2, toOpaqueColor(0xFF888D94), false);
+            } else {
+                for (Task recipe : recipes) {
+                    currentY = drawSatisfactoryRecipeBlock(context, innerX, currentY, innerW, recipe);
+                }
+            }
+        }
+    }
+
+    private int renderHudSectionBar(GuiGraphics context, int x, int y, int width, String title) {
+        context.fill(x, y, x + width, y + 12, COL_FICSIT_SUBHEADER);
+        context.drawCenteredString(client.font, title, x + width / 2, y + 2, toOpaqueColor(0xFFFFFFFF));
+        return y + 15;
+    }
+
+    /**
+     * Draws a Satisfactory Recipe Entry (matches Screenshot 1:
+     *   Recipe: Alternate: Steel Rod
+     *   Iron Rod                                   4
+     *   --------------------------------------------
+     *   Steel Ingot                         0 / 1 [icon]
+     *   [========== progress bar ==========]
+     */
+    private int drawSatisfactoryRecipeBlock(GuiGraphics context, int x, int y, int width, Task task) {
+        int curY = y;
+        int multiplier = parseMultiplierFromTags(task);
+
+        // Optional small grey subtitle ("Recipe: ...")
+        if (task.getDescription() != null && !task.getDescription().isBlank()) {
+            context.pose().pushPose();
+            context.pose().translate(x, curY, 0);
+            context.pose().scale(0.75f, 0.75f, 1.0f);
+            context.drawString(client.font, task.getDescription().trim(), 0, 0, toOpaqueColor(0xFF9EA4B0), false);
+            context.pose().popPose();
+            curY += 8;
+        }
+
+        // Bold Recipe/Task Title on the left + Multiplier Count on the right
+        String title = (task.getTitle() == null || task.getTitle().isBlank()) ? "Item" : task.getTitle();
+        String qtyStr = String.valueOf(multiplier);
+        context.drawString(client.font, title, x, curY, toOpaqueColor(0xFFFFFFFF), false);
+        context.drawString(client.font, qtyStr, x + width - client.font.width(qtyStr), curY, toOpaqueColor(0xFFFFFFFF), false);
+        curY += 11;
+
+        // Crisp 1px White Horizontal Divider Line
+        context.fill(x, curY, x + width, curY + 1, toOpaqueColor(0xFFD8DEE9));
+        curY += 4;
+
+        // Ingredients Breakdown Rows
+        List<ParsedItemRequirement> reqs = parseAllTaskItemRequirements(task);
+        if (reqs.isEmpty()) {
+            // If no item tag was parsed, render a single progress row for the task itself
+            context.drawString(client.font, title, x, curY + 2, toOpaqueColor(0xFFD8DEE9), false);
+            String status = task.isCompleted() ? "1 / 1" : "0 / 1";
+            context.drawString(client.font, status, x + width - client.font.width(status), curY + 2, toOpaqueColor(0xFFFFFFFF), false);
+            curY += 14;
+            context.fill(x, curY, x + width, curY + 2, 0x88000000);
+            if (task.isCompleted()) {
+                context.fill(x, curY, x + width, curY + 2, toOpaqueColor(COL_FICSIT_ORANGE));
+            }
+            return curY + 6;
+        }
+
+        for (ParsedItemRequirement req : reqs) {
+            int have = client.player != null ? countItemInPlayerInventory(client.player, req.item()) : 0;
+            int needed = Math.max(1, req.neededCount() * multiplier);
+            float progress = Math.clamp((float) have / needed, 0.0f, 1.0f);
+
+            int iconBoxSize = 18;
+            int iconBoxX = x + width - iconBoxSize;
+            int barWidth = width - iconBoxSize - 4;
+
+            // Ingredient Name on Left + "0 / 1" Ratio on Right (before icon box)
+            String ingName = trimWithEllipsis(req.stack().getHoverName().getString(), barWidth - 36);
+            String ratioStr = have + " / " + needed;
+            context.drawString(client.font, ingName, x, curY + 2, toOpaqueColor(0xFFE5E9F0), false);
+            context.drawString(client.font, ratioStr, iconBoxX - 4 - client.font.width(ratioStr), curY + 2,
+                    toOpaqueColor(have >= needed ? COL_FICSIT_GREEN : 0xFFFFFFFF), false);
+
+            // Progress Bar Track + Fill below Ingredient Name
+            int barY = curY + 13;
+            context.fill(x, barY, x + barWidth, barY + 3, 0xAA101214);
+            if (progress > 0.0f) {
+                int fillW = Math.max(1, Math.round(barWidth * progress));
+                context.fill(x, barY, x + fillW, barY + 3,
+                        toOpaqueColor(have >= needed ? COL_FICSIT_GREEN : COL_FICSIT_ORANGE));
+            }
+
+            // Right 18x18 Rounded Grey Item Slot Box + 3D Item Icon
+            context.fill(iconBoxX, curY, iconBoxX + iconBoxSize, curY + iconBoxSize, 0xCC4A4E57);
+            context.renderOutline(iconBoxX, curY, iconBoxSize, iconBoxSize, 0xFF282B30);
+            context.pose().pushPose();
+            context.pose().translate(iconBoxX + 1, curY + 1, 50);
+            context.renderItem(req.stack(), 0, 0);
+            context.pose().popPose();
+
+            curY += 21;
+        }
+
+        return curY + 3;
     }
 
     private void refreshHudModelIfNeeded(ModConfig config, HudViewMode viewMode, Project.Scope scope) {
@@ -444,72 +846,7 @@ public class TodoHudRenderer {
     }
 
     private H2TaskQueryService.HudTaskQueryResult queryHudTasksFromH2(ModConfig config, HudViewMode viewMode, Project.Scope scope) {
-        if (!shouldUseSynchronousH2HudQueries()) {
-            return null;
-        }
-        try {
-            H2TaskQueryService.HudTaskQuery query = buildHudTaskQuery(config, viewMode, scope);
-            if (query == null) return null;
-            return new H2TaskQueryService().queryHudTasks(query);
-        } catch (Exception exception) {
-            return null;
-        }
-    }
-
-    private boolean shouldUseSynchronousH2HudQueries() {
-        return false;
-    }
-
-    private H2TaskQueryService.HudTaskQuery buildHudTaskQuery(ModConfig config, HudViewMode viewMode, Project.Scope scope) {
-        String bucketType = scope == Project.Scope.TEAM ? H2TaskStore.TEAM_BUCKET : H2TaskStore.LOCAL_PERSONAL_BUCKET;
-        String ownerUuid = scope == Project.Scope.TEAM ? H2TaskStore.TEAM_OWNER : H2TaskStore.LOCAL_OWNER;
-        if (scope == Project.Scope.PERSONAL && client != null && client.player != null && ClientTaskStorageHelper.shouldUsePublishedLocalPlayerStorage(client)) {
-            var storagePlayerUuid = ClientTaskStorageHelper.resolveStoragePlayerUuid(client);
-            bucketType = H2TaskStore.PLAYER_PERSONAL_BUCKET;
-            ownerUuid = storagePlayerUuid == null ? "" : storagePlayerUuid.toString();
-        }
-
-        HudSqlProjectFilter projectFilter = resolveHudSqlProjectFilter(scope, config);
-        H2TaskQueryService.HudAssigneeFilter assigneeFilter = resolveHudAssigneeFilter(viewMode);
-        String playerUuid = client.player == null ? "" : client.player.getStringUUID();
-        int maxRowsByHeight = Math.max(0, (config.getHudMaxHeight() - 14) / 12);
-        int pendingLimit = Math.min(Math.max(0, config.getHudTodoLimit()), maxRowsByHeight);
-        int doneLimit = Math.min(Math.max(0, config.getHudDoneLimit()), maxRowsByHeight);
-        return new H2TaskQueryService.HudTaskQuery(
-                bucketType, ownerUuid, projectFilter.projectIds, projectFilter.includeAnyAssignedProject,
-                assigneeFilter, playerUuid, pendingLimit, doneLimit
-        );
-    }
-
-    private HudSqlProjectFilter resolveHudSqlProjectFilter(Project.Scope scope, ModConfig config) {
-        ProjectManager manager = TodoListCommon.getProjectManager();
-        List<Project> scopedProjects = manager.getProjectsByScope(scope);
-        String sourceMode = config.getHudProjectSource();
-        Set<String> allowedProjectIds = new HashSet<>();
-        Project activeProject = resolveScopedActiveProject(manager, scope, scopedProjects);
-
-        if ("CURRENT".equalsIgnoreCase(sourceMode)) {
-            if (activeProject != null) {
-                allowedProjectIds.add(activeProject.getId());
-            } else {
-                collectProjectIds(scopedProjects, allowedProjectIds);
-            }
-        } else if ("STARRED".equalsIgnoreCase(sourceMode)) {
-            for (Project project : scopedProjects) {
-                if (config.isHudProjectStarred(project.getId())) {
-                    allowedProjectIds.add(project.getId());
-                }
-            }
-        } else {
-            collectProjectIds(scopedProjects, allowedProjectIds);
-        }
-        return new HudSqlProjectFilter(allowedProjectIds, scope == Project.Scope.TEAM && allowedProjectIds.isEmpty());
-    }
-
-    private H2TaskQueryService.HudAssigneeFilter resolveHudAssigneeFilter(HudViewMode viewMode) {
-        if (viewMode == HudViewMode.TEAM_UNASSIGNED) return H2TaskQueryService.HudAssigneeFilter.UNASSIGNED;
-        if (viewMode == HudViewMode.TEAM_ASSIGNED) return H2TaskQueryService.HudAssigneeFilter.ASSIGNED_TO_PLAYER;
-        return H2TaskQueryService.HudAssigneeFilter.ANY;
+        return null;
     }
 
     private HudViewMode resolveViewMode(ModConfig config) {
@@ -664,12 +1001,12 @@ public class TodoHudRenderer {
 
         StringBuilder builder = new StringBuilder(getSpaceLabel(scope).getString());
         if (!projectName.isEmpty()) {
-            builder.append(" // ").append(projectName);
+            builder.append('-').append(projectName);
         }
 
         Component teamViewLabel = getTeamViewLabel(viewMode);
         if (teamViewLabel != null) {
-            builder.append(" [").append(teamViewLabel.getString()).append(']');
+            builder.append('-').append(teamViewLabel.getString());
         }
         return Component.literal(builder.toString());
     }
@@ -692,154 +1029,6 @@ public class TodoHudRenderer {
             case TEAM_ASSIGNED -> LABEL_TEAM_VIEW_ASSIGNED;
             case PERSONAL -> null;
         };
-    }
-
-    /**
-     * Renders the Satisfactory FICSIT To-Do List panel on the HUD.
-     */
-    private void renderTaskList(GuiGraphics context, int x, int y, int width, int panelHeight, List<Task> pending, List<Task> done,
-                                HudRenderPlan renderPlan, ModConfig config, HudViewMode viewMode) {
-        int currentY = y;
-        float opacity = (float) config.getHudOpacity();
-        int bodyBgColor = applyBackgroundOpacity(COL_FICSIT_BODY_BG, opacity);
-        int headerBgColor = applyBackgroundOpacity(COL_FICSIT_HEADER_BG, Math.min(1.0f, opacity + 0.15f));
-        int rowHeight = 12;
-        int headerHeight = 14;
-
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-
-        // 1. Main FICSIT Translucent Panel Body + Left Orange Stripe
-        context.fill(x, y, x + width, y + panelHeight, bodyBgColor);
-        context.renderOutline(x, y, width, panelHeight, applyBackgroundOpacity(COL_FICSIT_BORDER, opacity));
-
-        // 2. Top Gunmetal Header Bar + 2px FICSIT Orange Bottom Accent
-        context.fill(x, y, x + width, y + headerHeight, headerBgColor);
-        context.fill(x, y + headerHeight - 2, x + width, y + headerHeight, toOpaqueColor(COL_FICSIT_ORANGE));
-
-        Component title = buildHeaderTitle(viewMode);
-        String rawTitle = trimWithEllipsis("❖ " + title.getString(), width - 8);
-        int headerTextY = y + (headerHeight - client.font.lineHeight) / 2;
-        context.drawString(client.font, rawTitle, x + 5, headerTextY, toOpaqueColor(COL_FICSIT_ORANGE), false);
-        currentY += headerHeight;
-
-        // Collapsed state
-        if (!expanded) {
-            Component summary = buildCollapsedSummaryText(cachedPendingSummaryCount, cachedDoneSummaryCount);
-            int summaryY = currentY + (rowHeight - client.font.lineHeight) / 2;
-            context.drawString(client.font, summary, x + 5, summaryY, toOpaqueColor(0xFFE0E4EC), false);
-            return;
-        }
-
-        // 3. Pending Tasks Section
-        for (int i = 0; i < renderPlan.shownPending; i++) {
-            if (i % 2 == 1) {
-                context.fill(x + 1, currentY, x + width - 1, currentY + rowHeight, applyBackgroundOpacity(0x28FFFFFF, opacity * 0.25f));
-            }
-            drawTaskRow(context, x, currentY, width, rowHeight, pending.get(i));
-            currentY += rowHeight;
-        }
-
-        // 4. Completed Tasks Section
-        if (renderPlan.showDoneSection) {
-            context.fill(x + 1, currentY, x + width - 1, currentY + rowHeight, applyBackgroundOpacity(COL_FICSIT_SUBHEADER, opacity));
-            context.fill(x + 1, currentY, x + 3, currentY + rowHeight, toOpaqueColor(COL_FICSIT_GREEN));
-            int separatorY = currentY + (rowHeight - client.font.lineHeight) / 2;
-            context.drawString(client.font, SEPARATOR_COMPLETED, x + 6, separatorY, toOpaqueColor(0xFFB0B5BC), false);
-            currentY += rowHeight;
-            for (int i = 0; i < renderPlan.shownDone; i++) {
-                drawTaskRow(context, x, currentY, width, rowHeight, done.get(i));
-                currentY += rowHeight;
-            }
-        }
-
-        // 5. Footer Summary Bar
-        if (renderPlan.showMore) {
-            context.fill(x + 1, currentY, x + width - 1, currentY + rowHeight, applyBackgroundOpacity(0xFF1E2024, opacity));
-            int moreY = currentY + (rowHeight - client.font.lineHeight) / 2;
-            context.drawString(
-                    client.font,
-                    buildExpandedFooterSummaryText(cachedPendingSummaryCount, cachedDoneSummaryCount),
-                    x + 5,
-                    moreY,
-                    toOpaqueColor(COL_FICSIT_ORANGE),
-                    false
-            );
-        }
-    }
-
-    /**
-     * Draws an individual task row on the HUD, including 3D Item Icon + Live Inventory Count if the task has an item tag.
-     */
-    private void drawTaskRow(GuiGraphics context, int x, int y, int width, int rowHeight, Task task) {
-        RowRenderCache rowCache = rowRenderCacheByTaskId.get(task.getId());
-        if (!isRowRenderCacheValid(rowCache, task, width)) {
-            rowCache = buildRowRenderCache(task, width);
-            rowRenderCacheByTaskId.put(rowCache.taskId, rowCache);
-        }
-
-        int rowLeft = x + 4;
-        int titleTextY = y + (rowHeight - client.font.lineHeight) / 2;
-        int labelLineHeight = Math.max(1, Math.round(client.font.lineHeight * HUD_LABEL_SCALE));
-        int labelTextY = y + (rowHeight - labelLineHeight) / 2;
-        int textColor = toOpaqueColor(0xFFFFFFFF);
-        int labelColor = toOpaqueColor(COL_FICSIT_CYAN);
-
-        HudRowVisual rowVisual = rowCache.rowVisual;
-        if (rowVisual.prefixText != null) {
-            context.drawString(client.font, rowVisual.prefixText, rowLeft + rowVisual.prefixOffset, titleTextY, textColor, false);
-        }
-
-        // Priority Indicator Bar
-        context.fill(rowLeft + rowVisual.priorityBlockOffset, y + 2,
-                rowLeft + rowVisual.priorityBlockOffset + HUD_PRIORITY_BLOCK_WIDTH, y + rowHeight - 2,
-                toOpaqueColor(rowVisual.priorityBlockColor));
-
-        // Check if this task has an Item Requirement tag (e.g. "minecraft:iron_ingot:64")
-        ParsedItemRequirement itemReq = parseTaskItemRequirement(task);
-        if (itemReq != null && client.player != null) {
-            int have = countItemInPlayerInventory(client.player, itemReq.item());
-            boolean enough = have >= itemReq.neededCount() || isTaskCompletedInHud(task);
-
-            // Render scaled 10x10 3D Item Icon
-            int iconX = rowLeft + rowVisual.priorityBlockOffset + HUD_PRIORITY_BLOCK_WIDTH + 3;
-            context.pose().pushPose();
-            context.pose().translate(iconX, y + 1, 50);
-            context.pose().scale(0.625f, 0.625f, 1.0f);
-            context.renderItem(itemReq.stack(), 0, 0);
-            context.pose().popPose();
-
-            // Render Live Have/Need Count on the right edge
-            String countStr = have + "/" + itemReq.neededCount();
-            int countW = client.font.width(countStr);
-            int countX = x + width - countW - 4;
-            context.drawString(client.font, countStr, countX, titleTextY,
-                    toOpaqueColor(enough ? COL_FICSIT_GREEN : COL_FICSIT_ORANGE), false);
-
-            // Render Item/Task Title in between
-            int titleStartX = iconX + 12;
-            int availTitleW = Math.max(16, countX - titleStartX - 4);
-            String rawTitle = task.getTitle() == null || task.getTitle().isBlank()
-                    ? itemReq.stack().getHoverName().getString()
-                    : task.getTitle();
-            String clippedTitle = trimWithEllipsis(rawTitle, availTitleW);
-            Component styledTitle = enough
-                    ? Component.literal(clippedTitle).withStyle(ChatFormatting.GRAY, ChatFormatting.STRIKETHROUGH)
-                    : Component.literal(clippedTitle).withStyle(ChatFormatting.WHITE);
-            context.drawString(client.font, styledTitle, titleStartX, titleTextY, textColor, false);
-            return;
-        }
-
-        if (rowVisual.tagText != null && !rowVisual.tagText.isEmpty()) {
-            drawScaledString(context, rowVisual.tagText, rowLeft + rowVisual.tagOffset, labelTextY, labelColor, HUD_LABEL_SCALE);
-        }
-        if (rowVisual.titleText != null) {
-            context.drawString(client.font, rowVisual.titleText, rowLeft + rowVisual.titleOffset, titleTextY, textColor, false);
-        }
-        if (rowVisual.progressText != null) {
-            context.drawString(client.font, rowVisual.progressText, rowLeft + rowVisual.progressOffset, titleTextY, toOpaqueColor(COL_FICSIT_ORANGE), false);
-        }
     }
 
     private void rebuildRowRenderCache(List<Task> pending, List<Task> done, int hudWidth) {
@@ -955,15 +1144,6 @@ public class TodoHudRenderer {
         return isHudGroupCompleted(task, resolveParentSubtaskProgress(task));
     }
 
-    private boolean isRowRenderCacheValid(RowRenderCache cache, Task task, int hudWidth) {
-        if (cache == null) return false;
-        double guiScale = client.getWindow().getGuiScale();
-        if (cache.hudWidth != hudWidth || Double.compare(cache.guiScale, guiScale) != 0) {
-            return false;
-        }
-        return cache.layoutKey.equals(buildRowLayoutKey(task, hudWidth, guiScale));
-    }
-
     private int resolvePriorityBlockColor(Task.Priority priority) {
         return priority == null ? Task.Priority.MEDIUM.getColor() : priority.getColor();
     }
@@ -1006,15 +1186,6 @@ public class TodoHudRenderer {
         if (measureScaledTextWidth(text, scale) <= maxScaledWidth) return text;
         int unscaledWidth = Math.max(1, (int) Math.floor(maxScaledWidth / Math.max(0.01F, scale)));
         return trimWithEllipsis(text, unscaledWidth);
-    }
-
-    private void drawScaledString(GuiGraphics context, String text, int x, int y, int color, float scale) {
-        if (text == null || text.isEmpty()) return;
-        context.pose().pushPose();
-        context.pose().translate(x, y, 0.0F);
-        context.pose().scale(scale, scale, 1.0F);
-        context.drawString(client.font, text, 0, 0, color, false);
-        context.pose().popPose();
     }
 
     private static int applyOpacityToColor(int color, float opacity) {
@@ -1100,10 +1271,8 @@ public class TodoHudRenderer {
 
     public int getCurrentPanelHeight() {
         ModConfig config = ModConfig.getInstance();
-        HudViewMode viewMode = resolveViewMode(config);
-        Project.Scope scope = getScopeByView(viewMode);
-        refreshHudModelIfNeeded(config, viewMode, scope);
-        return calculatePanelHeight(config, cachedPendingTasks, cachedDoneTasks, cachedPendingTotalCount, cachedDoneTotalCount);
+        int hudWidth = Math.max(165, config.getHudWidth());
+        return calculateSatisfactoryHudHeight(hudWidth, getPublicNoteTasks(), getPrivateNoteTasks(), getRecipeTasks());
     }
 
     void refreshHudModelForTest() {
@@ -1247,19 +1416,6 @@ public class TodoHudRenderer {
             if (task != null && !task.isSubtask()) count++;
         }
         return count;
-    }
-
-    private int calculatePanelHeight(ModConfig config, List<Task> pending, List<Task> done) {
-        return calculatePanelHeight(config, pending, done, pending == null ? 0 : pending.size(), done == null ? 0 : done.size());
-    }
-
-    private int calculatePanelHeight(ModConfig config, List<Task> pending, List<Task> done, int pendingTotal, int doneTotal) {
-        int rowHeight = 12;
-        int headerHeight = 14;
-        HudRenderPlan renderPlan = buildRenderPlan(config, pending, done, pendingTotal, doneTotal);
-        int rowsForSummary = expanded ? renderPlan.shownPending + (renderPlan.showDoneSection ? 1 + renderPlan.shownDone : 0) : 1;
-        int totalRows = rowsForSummary + (renderPlan.showMore ? 1 : 0);
-        return headerHeight + totalRows * rowHeight;
     }
 
     public void toggleExpanded() {

@@ -22,6 +22,8 @@ repositories {
         content { includeGroup("dev.architectury") }
     }
     maven { url = "https://maven.fabricmc.net/" }
+    maven { url = "https://maven.blamejared.com" } // JEI
+    maven { url = "https://maven.terraformersmc.com/releases/" } // EMI
 }
 
 base {
@@ -88,6 +90,7 @@ dependencies {
     implementation("dev.ftb.mods:ftb-quests-neoforge:${ftb_quests_version}")
     implementation("dev.ftb.mods:ftb-teams-neoforge:${ftb_teams_version}")
     implementation("dev.ftb.mods:ftb-library-neoforge:${ftb_library_version}")
+    localRuntime("mezz.jei:jei-1.21.1-neoforge:19.21.0.247")
 
     // H2 Database Driver (used by TodoList's storage backend in dev & prod)
     if (h2Jar.exists()) {

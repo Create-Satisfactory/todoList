@@ -1,7 +1,6 @@
 package com.todolist.gui;
 
 import com.todolist.client.ClientBridge;
-import com.todolist.config.ModConfig;
 import com.todolist.permission.PermissionCenter;
 import com.todolist.permission.PermissionCenter.Context;
 import com.todolist.permission.PermissionCenter.Operation;
@@ -10,7 +9,6 @@ import com.todolist.permission.PermissionCenter.ViewScope;
 import com.todolist.project.Project;
 import com.todolist.project.ProjectManager;
 import com.todolist.project.ProjectNameFormatter;
-import com.todolist.TodoConstants;
 import com.todolist.TodoListCommon;
 import java.util.List;
 import java.util.Map;
@@ -28,12 +26,19 @@ import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
 
 /**
- * 项目设置界面：编辑项目名称，并在团队项目中进行成员管理与角色调整。
+ * FICSIT-styled Project Settings & Team Member Management Screen.
  */
 public class ProjectSettingsScreen extends Screen implements ProjectManager.ProjectChangeListener {
-    /**
-     * 项目设置页布局快照，统一保存弹窗和成员区域的边界信息。
-     */
+
+    private static final int COL_HEADER_BG     = 0xF225272B;
+    private static final int COL_BODY_BG       = 0xEB181A1D;
+    private static final int COL_WELL_BG       = 0xFF121316;
+    private static final int COL_FICSIT_ORANGE = 0xFFE59344;
+    private static final int COL_FICSIT_CYAN   = 0xFF4FC3F7;
+    private static final int TEXT_WHITE        = 0xFFFFFFFF;
+    private static final int TEXT_GRAY         = 0xFFB0B5BC;
+    private static final int TEXT_DARK         = 0xFF181A1D;
+
     private static final class SettingsLayout {
         private final int dialogX;
         private final int dialogY;
@@ -48,9 +53,6 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
         private final int memberListWidth;
         private final int memberListHeight;
 
-        /**
-         * 创建一份项目设置页布局快照。
-         */
         private SettingsLayout(int dialogX, int dialogY, int dialogWidth, int dialogHeight,
                                int scopeBadgeX, int scopeBadgeY, int scopeBadgeWidth, int scopeBadgeHeight,
                                int memberListX, int memberListY, int memberListWidth, int memberListHeight) {
@@ -83,214 +85,71 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
     private boolean allowAllPlayersClaimComplete;
     private SettingsLayout layout;
 
-    /**
-     * 创建项目设置界面。
-     */
     public ProjectSettingsScreen(Screen parent, Project project) {
         super(Component.translatable("gui.todolist.project_settings.title"));
         this.parent = parent;
         this.project = project;
     }
 
-    /**
-     * 返回当前项目设置界面使用的项目对象，供同包测试代码断言刷新结果。
-     *
-     * @return 当前项目对象
-     */
-    Project getProjectForTest() {
-        return project;
-    }
+    Project getProjectForTest() { return project; }
+    boolean canEditForTest() { return canEdit; }
+    EditBox getMemberSearchFieldForTest() { return memberSearchField; }
+    Button getAddMemberButtonForTest() { return addMemberBtn; }
+    EditBox getNameFieldForTest() { return nameField; }
+    Button getAllowMemberCreateButtonForTest() { return allowMemberCreateBtn; }
+    Button getAllowAllPlayersClaimCompleteButtonForTest() { return allowAllPlayersClaimCompleteBtn; }
+    Button getSaveButtonForTest() { return saveButton; }
 
-    /**
-     * 返回当前是否允许编辑项目，供同包测试代码断言权限分支。
-     *
-     * @return true 表示当前允许编辑
-     */
-    boolean canEditForTest() {
-        return canEdit;
-    }
-
-    /**
-     * 返回成员搜索输入框，供同包测试代码写入查询文本。
-     *
-     * @return 成员搜索输入框
-     */
-    EditBox getMemberSearchFieldForTest() {
-        return memberSearchField;
-    }
-
-    /**
-     * 返回新增成员按钮，供同包测试代码断言按钮状态。
-     *
-     * @return 新增成员按钮
-     */
-    Button getAddMemberButtonForTest() {
-        return addMemberBtn;
-    }
-
-    /**
-     * 返回项目名称输入框，供同包测试代码写入待保存名称。
-     *
-     * @return 项目名称输入框
-     */
-    EditBox getNameFieldForTest() {
-        return nameField;
-    }
-
-    /**
-     * 返回允许成员创建任务开关按钮，供同包测试代码驱动开关切换。
-     *
-     * @return 允许成员创建任务开关按钮
-     */
-    Button getAllowMemberCreateButtonForTest() {
-        return allowMemberCreateBtn;
-    }
-
-    /**
-     * 返回允许所有玩家领取/放弃/完成任务开关按钮，供同包测试代码驱动开关切换。
-     *
-     * @return 允许所有玩家领取/放弃/完成任务开关按钮
-     */
-    Button getAllowAllPlayersClaimCompleteButtonForTest() {
-        return allowAllPlayersClaimCompleteBtn;
-    }
-
-    /**
-     * 返回保存按钮，供同包测试代码触发保存流程。
-     *
-     * @return 保存按钮
-     */
-    Button getSaveButtonForTest() {
-        return saveButton;
-    }
-
-    /**
-     * 返回当前成员列表中可见成员名称快照，供同包测试代码断言搜索与刷新结果。
-     *
-     * @return 当前成员列表中可见成员名称快照
-     */
     List<String> getVisibleMemberNamesForTest() {
-        if (memberList == null) {
-            return List.of();
-        }
-        return memberList.getVisibleMemberNamesForTest();
+        return memberList == null ? List.of() : memberList.getVisibleMemberNamesForTest();
     }
 
-    /**
-     * 返回对话框边界，供测试验证布局。
-     *
-     * @return 对话框边界数组
-     */
     int[] getDialogBoundsForTest() {
-        if (layout == null) {
-            return new int[] {0, 0, 0, 0};
-        }
-        return new int[] {layout.dialogX, layout.dialogY, layout.dialogWidth, layout.dialogHeight};
+        return layout == null ? new int[] {0, 0, 0, 0} : new int[] {layout.dialogX, layout.dialogY, layout.dialogWidth, layout.dialogHeight};
     }
 
-    /**
-     * 返回范围标识边界，供测试验证右上角布局。
-     *
-     * @return 范围标识边界数组
-     */
     int[] getScopeBadgeBoundsForTest() {
-        if (layout == null) {
-            return new int[] {0, 0, 0, 0};
-        }
-        return new int[] {layout.scopeBadgeX, layout.scopeBadgeY, layout.scopeBadgeWidth, layout.scopeBadgeHeight};
+        return layout == null ? new int[] {0, 0, 0, 0} : new int[] {layout.scopeBadgeX, layout.scopeBadgeY, layout.scopeBadgeWidth, layout.scopeBadgeHeight};
     }
 
-    /**
-     * 返回范围标识当前使用的语义键。
-     *
-     * @return 范围标识语义键
-     */
     String getScopeBadgeTextForTest() {
         return project.getScope() == Project.Scope.TEAM ? "gui.todolist.scope.team" : "gui.todolist.scope.personal";
     }
 
-    /**
-     * 返回允许成员创建任务开关当前使用的语义键。
-     *
-     * @return 开关键值语义键
-     */
     String getAllowMemberCreateStateKeyForTest() {
         return allowMemberCreate ? "gui.todolist.config.toggle.on" : "gui.todolist.config.toggle.off";
     }
 
-    /**
-     * 返回允许所有玩家领取/放弃/完成任务开关当前使用的语义键。
-     *
-     * @return 开关键值语义键
-     */
     String getAllowAllPlayersClaimCompleteStateKeyForTest() {
         return allowAllPlayersClaimComplete ? "gui.todolist.config.toggle.on" : "gui.todolist.config.toggle.off";
     }
 
-    /**
-     * 返回成员列表边界，供测试验证按钮右对齐布局。
-     *
-     * @return 成员列表边界数组
-     */
     int[] getMemberListBoundsForTest() {
-        if (layout == null) {
-            return new int[] {0, 0, 0, 0};
-        }
-        return new int[] {layout.memberListX, layout.memberListY, layout.memberListWidth, layout.memberListHeight};
+        return layout == null ? new int[] {0, 0, 0, 0} : new int[] {layout.memberListX, layout.memberListY, layout.memberListWidth, layout.memberListHeight};
     }
 
-    /**
-     * 返回指定成员行的角色按钮边界。
-     *
-     * @param rowIndex 行索引
-     * @return 角色按钮边界数组
-     */
     int[] getMemberRoleButtonBoundsForTest(int rowIndex) {
         MemberListWidget.MemberEntry entry = getMemberEntryForTest(rowIndex);
-        if (entry == null || memberList == null) {
-            return new int[] {0, 0, 0, 0};
-        }
+        if (entry == null || memberList == null) return new int[] {0, 0, 0, 0};
         entry.syncButtonLayoutForTest(rowIndex, memberList);
         return entry.getRoleButtonBoundsForTest();
     }
 
-    /**
-     * 返回指定成员行的移出按钮边界。
-     *
-     * @param rowIndex 行索引
-     * @return 移出按钮边界数组
-     */
     int[] getMemberRemoveButtonBoundsForTest(int rowIndex) {
         MemberListWidget.MemberEntry entry = getMemberEntryForTest(rowIndex);
-        if (entry == null || memberList == null) {
-            return new int[] {0, 0, 0, 0};
-        }
+        if (entry == null || memberList == null) return new int[] {0, 0, 0, 0};
         entry.syncButtonLayoutForTest(rowIndex, memberList);
         return entry.getRemoveButtonBoundsForTest();
     }
 
-    /**
-     * 点击指定成员行的角色按钮，供测试驱动角色切换逻辑。
-     *
-     * @param rowIndex 行索引
-     */
     void clickMemberRoleButtonForTest(int rowIndex) {
         MemberListWidget.MemberEntry entry = getMemberEntryForTest(rowIndex);
-        if (entry != null) {
-            entry.clickRoleButtonForTest();
-        }
+        if (entry != null) entry.clickRoleButtonForTest();
     }
 
-    /**
-     * 点击指定成员行的移出按钮，供测试驱动移出成员逻辑。
-     *
-     * @param rowIndex 行索引
-     */
     void clickMemberRemoveButtonForTest(int rowIndex) {
         MemberListWidget.MemberEntry entry = getMemberEntryForTest(rowIndex);
-        if (entry != null) {
-            entry.clickRemoveButtonForTest();
-        }
+        if (entry != null) entry.clickRemoveButtonForTest();
     }
 
     @Override
@@ -302,7 +161,6 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
         allowAllPlayersClaimComplete = project.isAllowAllPlayersClaimComplete();
         layout = computeResponsiveLayout(isTeam);
 
-        // Name Field
         int headerRightWidth = isTeam ? 118 : 88;
         int contentLeft = layout.dialogX + 10;
         int contentRight = layout.dialogX + layout.dialogWidth - 10;
@@ -314,7 +172,6 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
         nameField.setEditable(canEdit);
         addRenderableWidget(nameField);
 
-        // Team Member Management
         if (isTeam) {
             allowMemberCreateBtn = Button.builder(getAllowMemberCreateText(), button -> {
                 allowMemberCreate = !allowMemberCreate;
@@ -347,36 +204,28 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
             addRenderableWidget(addMemberBtn);
         }
 
-        // Save Button
         saveButton = Button.builder(Component.translatable("gui.todolist.save"), button -> saveProject())
-                .bounds(layout.dialogX + 80, layout.dialogY + layout.dialogHeight - 30, 50, 20).build();
+                .bounds(layout.dialogX + 80, layout.dialogY + layout.dialogHeight - 28, 60, 20).build();
         saveButton.active = canEdit;
         addRenderableWidget(saveButton);
 
-        // Cancel Button
         addRenderableWidget(Button.builder(Component.translatable("gui.todolist.cancel"), button -> onClose())
-                .bounds(layout.dialogX + layout.dialogWidth - 60, layout.dialogY + layout.dialogHeight - 30, 50, 20).build());
-        
+                .bounds(layout.dialogX + layout.dialogWidth - 70, layout.dialogY + layout.dialogHeight - 28, 60, 20).build());
+
         if (canEdit) {
             setFocused(nameField);
         }
     }
 
-    /**
-     * 计算项目设置页当前窗口尺寸下的布局快照。
-     *
-     * @param isTeam 当前是否为团队项目
-     * @return 当前窗口下的布局快照
-     */
     private SettingsLayout computeResponsiveLayout(boolean isTeam) {
         int dialogWidth = Math.max(220, Math.min(360, width - 20));
         int dialogHeight = isTeam ? Math.max(220, Math.min(320, height - 20)) : Math.max(150, Math.min(220, height - 20));
         int dialogX = (width - dialogWidth) / 2;
         int dialogY = (height - dialogHeight) / 2;
-        int scopeBadgeWidth = 64;
+        int scopeBadgeWidth = 72;
         int scopeBadgeHeight = 14;
         int scopeBadgeX = dialogX + dialogWidth - 10 - scopeBadgeWidth;
-        int scopeBadgeY = dialogY + 12;
+        int scopeBadgeY = dialogY + 4;
         int memberListX = dialogX + 10;
         int memberListY = dialogY + 115;
         int memberListWidth = dialogWidth - 20;
@@ -386,49 +235,33 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 memberListX, memberListY, memberListWidth, memberListHeight);
     }
 
-    /**
-     * 渲染右上角的空间归属标识。
-     *
-     * @param context 当前绘制上下文
-     */
     private void renderScopeBadge(GuiGraphics context) {
-        if (layout == null) {
-            return;
-        }
-        Component badgeText = project.getScope() == Project.Scope.TEAM
+        if (layout == null) return;
+        boolean isFtbTeam = project.getId() != null && project.getId().startsWith("ftbteam_");
+        Component badgeText = isFtbTeam
+                ? Component.literal("FTB TEAM")
+                : (project.getScope() == Project.Scope.TEAM
                 ? Component.translatable("gui.todolist.scope.team")
-                : Component.translatable("gui.todolist.scope.personal");
+                : Component.translatable("gui.todolist.scope.personal"));
+        int pillColor = isFtbTeam ? COL_FICSIT_ORANGE : (project.getScope() == Project.Scope.TEAM ? COL_FICSIT_CYAN : 0xFF3E4147);
+        int txtColor = (isFtbTeam || project.getScope() == Project.Scope.TEAM) ? TEXT_DARK : TEXT_WHITE;
+
         context.fill(layout.scopeBadgeX, layout.scopeBadgeY,
-                layout.scopeBadgeX + layout.scopeBadgeWidth, layout.scopeBadgeY + layout.scopeBadgeHeight, 0xFF303030);
-        context.renderOutline(layout.scopeBadgeX, layout.scopeBadgeY, layout.scopeBadgeWidth, layout.scopeBadgeHeight, 0xFF888888);
+                layout.scopeBadgeX + layout.scopeBadgeWidth, layout.scopeBadgeY + layout.scopeBadgeHeight, pillColor);
+        context.renderOutline(layout.scopeBadgeX, layout.scopeBadgeY, layout.scopeBadgeWidth, layout.scopeBadgeHeight, 0xFF141518);
         context.drawCenteredString(font, badgeText,
                 layout.scopeBadgeX + layout.scopeBadgeWidth / 2,
-                layout.scopeBadgeY + 3, 0xFFFFFFFF);
+                layout.scopeBadgeY + 3, txtColor);
     }
 
-    /**
-     * 返回指定索引的成员行，供测试驱动成员行按钮行为。
-     *
-     * @param rowIndex 行索引
-     * @return 对应成员行；不存在时返回 null
-     */
     private MemberListWidget.MemberEntry getMemberEntryForTest(int rowIndex) {
-        if (memberList == null || rowIndex < 0 || rowIndex >= memberList.children().size()) {
-            return null;
-        }
+        if (memberList == null || rowIndex < 0 || rowIndex >= memberList.children().size()) return null;
         return memberList.children().get(rowIndex);
     }
 
     public void optimisticAddMember(String memberUuid, String memberName) {
-        if (memberUuid == null || memberUuid.isEmpty()) {
-            return;
-        }
-        if (project.getScope() != Project.Scope.TEAM) {
-            return;
-        }
-        if (project.getMembers().containsKey(memberUuid)) {
-            return;
-        }
+        if (memberUuid == null || memberUuid.isEmpty() || project.getScope() != Project.Scope.TEAM) return;
+        if (project.getMembers().containsKey(memberUuid)) return;
         project.addMember(memberUuid, Project.ProjectRole.MEMBER, memberName);
         if (memberList != null) {
             String search = memberSearchField != null ? memberSearchField.getValue() : "";
@@ -439,18 +272,15 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
     private boolean checkPermission() {
         if (minecraft.player == null) return false;
         String uuid = minecraft.player.getUUID().toString();
-        
         if (project.getScope() == Project.Scope.PERSONAL) {
-             String owner = project.getOwnerUuid();
-             if (owner == null) return true;
-             return uuid.equals(owner);
+            String owner = project.getOwnerUuid();
+            return owner == null || uuid.equals(owner);
         }
-        
         Role role = getCurrentRole();
         Context ctx = new Context(ViewScope.TEAM_ALL, false, false, false);
         return PermissionCenter.canPerform(Operation.EDIT_PROJECT, role, ctx);
     }
-    
+
     private boolean checkAdminPermission() {
         Role role = getCurrentRole();
         Context ctx = new Context(ViewScope.TEAM_ALL, false, false, false);
@@ -462,21 +292,12 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
     }
 
     private Role getCurrentRole() {
-        if (isOpClient()) {
-            return Role.OP;
-        }
-        if (minecraft == null || minecraft.player == null) {
-            return Role.MEMBER;
-        }
+        if (isOpClient()) return Role.OP;
+        if (minecraft == null || minecraft.player == null) return Role.MEMBER;
         String uuid = minecraft.player.getUUID().toString();
-        if (uuid.equals(project.getOwnerUuid())) {
-            return Role.PROJECT_MANAGER;
-        }
+        if (uuid.equals(project.getOwnerUuid())) return Role.PROJECT_MANAGER;
         Project.ProjectRole r = project.getMemberRole(uuid);
-        if (r == Project.ProjectRole.LEAD) {
-            return Role.LEAD;
-        }
-        return Role.MEMBER;
+        return r == Project.ProjectRole.LEAD ? Role.LEAD : Role.MEMBER;
     }
 
     private void saveProject() {
@@ -498,11 +319,6 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
         );
     }
 
-    /**
-     * 返回“允许所有玩家领取/放弃/完成任务”开关按钮文案。
-     *
-     * @return 开关按钮文案组件
-     */
     private Component getAllowAllPlayersClaimCompleteText() {
         return Component.translatable(
                 "gui.todolist.project.allow_all_players_claim_complete",
@@ -510,22 +326,10 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
         );
     }
 
-    /**
-     * 规范化项目名称保存值。
-     * 当用户未实际修改默认项目显示名时，保留原翻译键，避免把默认项目误保存为本地化文本。
-     * @param editedName 输入框中的项目名
-     * @param originalName 原始项目名
-     * @return 应保存的项目名
-     */
     private String normalizeProjectNameForSave(String editedName, String originalName) {
-        if (!ProjectNameFormatter.isTranslationKey(originalName)) {
-            return editedName;
-        }
+        if (!ProjectNameFormatter.isTranslationKey(originalName)) return editedName;
         String originalDisplay = ProjectNameFormatter.toDisplayText(originalName).getString();
-        if (editedName.equals(originalDisplay)) {
-            return originalName;
-        }
-        return editedName;
+        return editedName.equals(originalDisplay) ? originalName : editedName;
     }
 
     @Override
@@ -550,27 +354,34 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
     }
 
     @Override
-    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        // Background is drawn manually in render to keep cross-loader consistency.
-    }
+    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {}
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, ModConfig.getInstance().getBackgroundColor());
+        context.fill(0, 0, this.width, this.height, 0x78090A0C);
         boolean isTeam = project.getScope() == Project.Scope.TEAM;
         layout = computeResponsiveLayout(isTeam);
-        
-        context.fill(layout.dialogX, layout.dialogY, layout.dialogX + layout.dialogWidth, layout.dialogY + layout.dialogHeight, 0xFF202020);
-        context.renderOutline(layout.dialogX, layout.dialogY, layout.dialogWidth, layout.dialogHeight, 0xFFFFFFFF);
-        
-        context.drawString(font, title, layout.dialogX + 10, layout.dialogY + 10, 0xFFFFFFFF, false);
-        context.drawString(font, Component.translatable("gui.todolist.label.name"), layout.dialogX + 10, layout.dialogY + 25, 0xFFAAAAAA, false);
+
+        // 1. FICSIT Header Bar + Orange Accent Line
+        context.fill(layout.dialogX, layout.dialogY, layout.dialogX + layout.dialogWidth, layout.dialogY + 22, COL_HEADER_BG);
+        context.fill(layout.dialogX, layout.dialogY + 20, layout.dialogX + layout.dialogWidth, layout.dialogY + 22, COL_FICSIT_ORANGE);
+        context.drawString(font, "⚙", layout.dialogX + 8, layout.dialogY + 7, COL_FICSIT_ORANGE, false);
+        context.drawString(font, title, layout.dialogX + 20, layout.dialogY + 7, TEXT_WHITE, false);
         renderScopeBadge(context);
-        
+
+        // 2. Main Modal Body
+        context.fill(layout.dialogX, layout.dialogY + 22, layout.dialogX + layout.dialogWidth, layout.dialogY + layout.dialogHeight, COL_BODY_BG);
+        context.drawString(font, Component.translatable("gui.todolist.label.name"), layout.dialogX + 10, layout.dialogY + 25, TEXT_GRAY, false);
+
         if (isTeam) {
-            context.drawString(font, Component.translatable("gui.todolist.label.members"), layout.dialogX + 10, layout.dialogY + 76, 0xFFAAAAAA, false);
+            context.fill(layout.memberListX - 2, layout.memberListY - 2,
+                    layout.memberListX + layout.memberListWidth + 2, layout.memberListY + layout.memberListHeight + 2, COL_WELL_BG);
+            context.renderOutline(layout.memberListX - 2, layout.memberListY - 2,
+                    layout.memberListWidth + 4, layout.memberListHeight + 4, 0xFF282B30);
+            context.drawString(font, Component.translatable("gui.todolist.label.members"), layout.dialogX + 10, layout.dialogY + 76, COL_FICSIT_ORANGE, false);
         }
-        
+
+        context.renderOutline(layout.dialogX, layout.dialogY, layout.dialogWidth, layout.dialogHeight, 0xFF141518);
         super.render(context, mouseX, mouseY, delta);
     }
 
@@ -589,9 +400,7 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 Project.ProjectRole ownerRole = project.getMemberRole(ownerUuid);
                 if (ownerRole == null) ownerRole = Project.ProjectRole.PROJECT_MANAGER;
                 String name = project.getMemberName(ownerUuid);
-                if (name == null || name.isEmpty()) {
-                    name = ownerUuid;
-                }
+                if (name == null || name.isEmpty()) name = ownerUuid;
                 try {
                     UUID id = UUID.fromString(ownerUuid);
                     if (minecraft.getConnection() != null) {
@@ -601,7 +410,7 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                             project.setMemberName(ownerUuid, name);
                         }
                     }
-                } catch (Exception e) {}
+                } catch (Exception ignored) {}
                 if (q.isEmpty() || name.toLowerCase().contains(q)) {
                     this.addEntry(new MemberEntry(ownerUuid, ownerRole));
                 }
@@ -612,11 +421,8 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 if (ownerUuid != null && ownerUuid.equals(uuid)) continue;
 
                 Project.ProjectRole role = entry.getValue();
-
                 String name = project.getMemberName(uuid);
-                if (name == null || name.isEmpty()) {
-                    name = uuid;
-                }
+                if (name == null || name.isEmpty()) name = uuid;
                 try {
                     UUID id = UUID.fromString(uuid);
                     if (minecraft.getConnection() != null) {
@@ -626,7 +432,7 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                             project.setMemberName(uuid, name);
                         }
                     }
-                } catch (Exception e) {}
+                } catch (Exception ignored) {}
 
                 if (q.isEmpty() || name.toLowerCase().contains(q)) {
                     this.addEntry(new MemberEntry(uuid, role));
@@ -634,26 +440,15 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
             }
         }
 
-        /**
-         * 返回当前成员列表可见成员名称快照，供同包测试代码断言过滤与刷新结果。
-         *
-         * @return 可见成员名称快照
-         */
-            public List<String> getVisibleMemberNamesForTest() {
-                return this.children().stream()
-                        .map(MemberEntry::getNameForTest)
-                        .toList();
-            }
-        
-        @Override
-        public int getRowWidth() {
-            return this.getWidth() - 10;
+        public List<String> getVisibleMemberNamesForTest() {
+            return this.children().stream().map(MemberEntry::getNameForTest).toList();
         }
 
         @Override
-        protected int getScrollbarPosition() {
-            return this.getX() + this.getWidth() + 6;
-        }
+        public int getRowWidth() { return this.getWidth() - 10; }
+
+        @Override
+        protected int getScrollbarPosition() { return this.getX() + this.getWidth() + 6; }
 
         public class MemberEntry extends ContainerObjectSelectionList.Entry<MemberEntry> {
             private final String uuid;
@@ -665,24 +460,19 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
             public MemberEntry(String uuid, Project.ProjectRole role) {
                 this.uuid = uuid;
                 this.role = role;
-                
-                // Resolve name
+
                 this.name = project.getMemberName(uuid);
-                if (this.name == null || this.name.isEmpty()) {
-                    this.name = uuid;
-                }
+                if (this.name == null || this.name.isEmpty()) this.name = uuid;
                 try {
                     UUID id = UUID.fromString(uuid);
                     if (minecraft.getConnection() != null) {
-                         PlayerInfo entry = minecraft.getConnection().getPlayerInfo(id);
-                         if (entry != null) {
-                             name = entry.getProfile().getName();
-                             project.setMemberName(uuid, name);
-                         }
+                        PlayerInfo entry = minecraft.getConnection().getPlayerInfo(id);
+                        if (entry != null) {
+                            name = entry.getProfile().getName();
+                            project.setMemberName(uuid, name);
+                        }
                     }
-                } catch (Exception e) {
-                    // Ignore
-                }
+                } catch (Exception ignored) {}
 
                 this.roleBtn = Button.builder(getRoleText(role), b -> toggleRole())
                         .bounds(0, 0, 60, 16).build();
@@ -691,7 +481,7 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 this.removeBtn = Button.builder(Component.translatable("gui.todolist.remove_member").withStyle(ChatFormatting.RED), b -> {
                     ClientBridge.ops().sendRemoveMember(project.getId(), uuid);
                 }).bounds(0, 0, 34, 16).build();
-                
+
                 boolean targetSelf = minecraft.player != null && minecraft.player.getUUID().toString().equals(uuid);
                 boolean targetProjectManager = project.getOwnerUuid() != null && project.getOwnerUuid().equals(uuid);
                 Role actorRole = getCurrentRole();
@@ -701,20 +491,14 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
 
             @Override
             public void render(GuiGraphics context, int index, int y, int x, int entryWidth, int entryHeight, int mouseX, int mouseY, boolean hovered, float tickDelta) {
-                context.drawString(font, name, x + 2, y + 4, 0xFFFFFFFF, false);
+                context.fill(x, y + 1, x + entryWidth, y + entryHeight - 1, hovered ? 0xFF2B2E34 : 0xFF1E2024);
+                context.fill(x, y + 1, x + 2, y + entryHeight - 1, role == Project.ProjectRole.PROJECT_MANAGER ? COL_FICSIT_ORANGE : COL_FICSIT_CYAN);
+                context.drawString(font, name, x + 6, y + 4, TEXT_WHITE, false);
                 syncButtonLayout(x, y, entryWidth, entryHeight);
                 this.removeBtn.render(context, mouseX, mouseY, tickDelta);
                 this.roleBtn.render(context, mouseX, mouseY, tickDelta);
             }
 
-            /**
-             * 按当前成员行尺寸同步角色按钮与移出按钮位置。
-             *
-             * @param x 行起始 X
-             * @param y 行起始 Y
-             * @param entryWidth 行宽度
-             * @param entryHeight 行高度
-             */
             private void syncButtonLayout(int x, int y, int entryWidth, int entryHeight) {
                 int btnY = y + (entryHeight - 16) / 2;
                 int removeWidth = Math.max(28, Math.min(34, entryWidth / 6));
@@ -728,12 +512,6 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 this.removeBtn.setY(btnY);
             }
 
-            /**
-             * 为测试代码同步按钮布局，避免在未渲染前读取到默认坐标。
-             *
-             * @param index 当前行索引
-             * @param owner 所属成员列表组件
-             */
             public void syncButtonLayoutForTest(int index, MemberListWidget owner) {
                 int entryTop = owner.getRowTop(index);
                 int rowLeft = owner.getX() + (owner.getWidth() - owner.getRowWidth()) / 2;
@@ -745,9 +523,7 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
                 boolean targetProjectManager = project.getOwnerUuid() != null && project.getOwnerUuid().equals(uuid);
                 Role actorRole = getCurrentRole();
                 Context ctx = new Context(ViewScope.TEAM_ALL, false, false, false, targetSelf, targetProjectManager);
-                if (!PermissionCenter.canPerform(Operation.CHANGE_MEMBER_ROLE, actorRole, ctx)) {
-                    return false;
-                }
+                if (!PermissionCenter.canPerform(Operation.CHANGE_MEMBER_ROLE, actorRole, ctx)) return false;
                 return role == Project.ProjectRole.MEMBER || role == Project.ProjectRole.LEAD;
             }
 
@@ -779,65 +555,22 @@ public class ProjectSettingsScreen extends Screen implements ProjectManager.Proj
             }
 
             @Override
-            public List<? extends GuiEventListener> children() {
-                return List.of(roleBtn, removeBtn);
-            }
+            public List<? extends GuiEventListener> children() { return List.of(roleBtn, removeBtn); }
 
             @Override
-            public List<? extends NarratableEntry> narratables() {
-                return List.of(roleBtn, removeBtn);
-            }
+            public List<? extends NarratableEntry> narratables() { return List.of(roleBtn, removeBtn); }
 
             private Component getRoleText(Project.ProjectRole role) {
-                if (role == Project.ProjectRole.MEMBER) {
-                    return Component.translatable("gui.todolist.role.member");
-                }
-                if (role == Project.ProjectRole.LEAD) {
-                    return Component.translatable("gui.todolist.role.lead");
-                }
+                if (role == Project.ProjectRole.MEMBER) return Component.translatable("gui.todolist.role.member");
+                if (role == Project.ProjectRole.LEAD) return Component.translatable("gui.todolist.role.lead");
                 return Component.translatable("gui.todolist.role.manager");
             }
 
-            /**
-             * 返回当前成员项解析后的显示名称，供同包测试代码断言列表内容。
-             *
-             * @return 成员显示名称
-             */
-            public String getNameForTest() {
-                return name;
-            }
-
-            /**
-             * 返回角色按钮边界，供测试验证成员行右侧布局。
-             *
-             * @return 角色按钮边界数组
-             */
-            public int[] getRoleButtonBoundsForTest() {
-                return new int[] {roleBtn.getX(), roleBtn.getY(), roleBtn.getWidth(), roleBtn.getHeight()};
-            }
-
-            /**
-             * 返回移出按钮边界，供测试验证成员行右侧布局。
-             *
-             * @return 移出按钮边界数组
-             */
-            public int[] getRemoveButtonBoundsForTest() {
-                return new int[] {removeBtn.getX(), removeBtn.getY(), removeBtn.getWidth(), removeBtn.getHeight()};
-            }
-
-            /**
-             * 点击角色按钮，供测试驱动角色切换行为。
-             */
-            public void clickRoleButtonForTest() {
-                roleBtn.onPress();
-            }
-
-            /**
-             * 点击移出按钮，供测试驱动移出成员行为。
-             */
-            public void clickRemoveButtonForTest() {
-                removeBtn.onPress();
-            }
+            public String getNameForTest() { return name; }
+            public int[] getRoleButtonBoundsForTest() { return new int[] {roleBtn.getX(), roleBtn.getY(), roleBtn.getWidth(), roleBtn.getHeight()}; }
+            public int[] getRemoveButtonBoundsForTest() { return new int[] {removeBtn.getX(), removeBtn.getY(), removeBtn.getWidth(), removeBtn.getHeight()}; }
+            public void clickRoleButtonForTest() { roleBtn.onPress(); }
+            public void clickRemoveButtonForTest() { removeBtn.onPress(); }
         }
     }
 }

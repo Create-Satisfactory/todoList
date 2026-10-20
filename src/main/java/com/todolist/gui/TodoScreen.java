@@ -139,6 +139,12 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
     private boolean teamProjectsEnabled = true;
     private int savedProjectListScrollOffset;
     private int savedTaskListScrollOffset;
+
+    private enum ActiveNoteEditMode { NONE, PUBLIC, PRIVATE, RECIPE }
+    private ActiveNoteEditMode activeNoteMode = ActiveNoteEditMode.NONE;
+    private String satisfactoryInputBuffer = "";
+    private int satisfactoryScrollOffset = 0;
+
     /**
      * widget 重建过程中保留的“用户已展开的父任务 ID 集合”。
      * 每次进入 {@link #rebuildUI()} 时从旧 widget 读出，重建后再写回新 widget，
@@ -1363,6 +1369,15 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
         }
         syncDetailWidgetsFromState();
         this.setFocused(quickAddField);
+
+        // Hide legacy 3-column widgets so only the Satisfactory To-Do List modal is displayed
+        for (var child : this.renderables) {
+            if (child instanceof AbstractWidget w) {
+                w.visible = false;
+                w.active = false;
+            }
+        }
+
         updateButtonStates();
     }
 
@@ -1617,75 +1632,249 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
 
     @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        refreshClearCompletedButtonState();
-        context.fill(0, 0, this.width, this.height, ModConfig.getInstance().getBackgroundColor());
-
-        Component title = hasUnsavedChanges ? Component.translatable("gui.todolist.title.unsaved") : TITLE;
-        context.drawString(this.font, title, (this.width - this.font.width(title)) / 2, 10, 0xFFFFFFFF, false);
-
-        TodoScreenRenderSupport.renderLayoutPanels(
-                context,
-                layoutMetrics,
-                isSidebarPanelVisible(),
-                isDetailPanelVisible());
-        TodoScreenRenderSupport.renderContentHeaderSummary(
-                context,
-                this.font,
-                layoutMetrics,
-                responsiveTier,
-                currentSpaceMode,
-                currentTaskViewOption,
-                currentProject,
-                configButton,
-                sidebarToggleButton);
-        if (taskListWidget != null) taskListWidget.render(context, mouseX, mouseY, delta);
-        if (projectListWidget != null && isSidebarPanelVisible()) {
-            projectListWidget.render(context, mouseX, mouseY, delta);
-        }
-
-        super.render(context, mouseX, mouseY, delta);
-
-        int color = 0xFFFFFFFF;
-        int textH = this.font.lineHeight;
-        Component parentContext = resolveSelectedTaskParentContextComponent();
-
-        if (descField != null && descField.visible) {
-            int dy = descField.getY() - textH - 2;
-            if (parentContext != null) {
-                int parentY = dy - textH - 4;
-                context.drawString(this.font, parentContext, descField.getX(), parentY, color, false);
+        // Hide any legacy widgets that may have been re-enabled
+        for (var child : this.renderables) {
+            if (child instanceof AbstractWidget w) {
+                w.visible = false;
+                w.active = false;
             }
-            context.drawString(this.font, Component.translatable("gui.todolist.label.description"), descField.getX(), dy, color, false);
         }
-        if (tagField != null && tagField.visible) {
-            int zy = tagField.getY() - textH - 2;
-            context.drawString(this.font, Component.translatable("gui.todolist.label.tags"), tagField.getX(), zy, color, false);
+
+        context.fill(0, 0, this.width, this.height, 0x58090A0C);
+
+        int winW = 240;
+        int winH = Math.min(340, this.height - 28);
+        int winX = (this.width - winW) / 2;
+        int winY = (this.height - winH) / 2;
+
+        // 1. Top Header Bar ("≡ To-Do List" | Gear Config | "✕" Close)
+        context.fill(winX, winY, winX + winW, winY + 22, 0xF532353B);
+
+        // List icon + "To-Do List"
+        context.drawString(font, "≡", winX + 8, winY + 7, 0xFFFFFFFF, false);
+        context.drawString(font, "To-Do List", winX + 20, winY + 7, 0xFFFFFFFF, false);
+
+        // Gear button (opens HUD ConfigScreen)
+        int cfgX = winX + winW - 50;
+        boolean cfgHover = mouseX >= cfgX && mouseX < cfgX + 24 && mouseY >= winY && mouseY < winY + 22;
+        context.fill(cfgX, winY, cfgX + 24, winY + 22, cfgHover ? 0xFF565A62 : 0xFF45484F);
+        context.drawCenteredString(font, "⚙", cfgX + 12, winY + 7, 0xFFFFFFFF);
+
+        // Close 'X' button
+        int closeX = winX + winW - 26;
+        boolean closeHover = mouseX >= closeX && mouseX < winX + winW && mouseY >= winY && mouseY < winY + 22;
+        context.fill(closeX, winY, winX + winW, winY + 22, closeHover ? 0xFFD9534F : 0xFF565A62);
+        context.drawCenteredString(font, "✕", closeX + 13, winY + 7, 0xFFFFFFFF);
+
+        // 2. Main Translucent Dark Body
+        int bodyTop = winY + 22;
+        int footerTop = winY + winH - 26;
+        context.fill(winX, bodyTop, winX + winW, footerTop, 0xD91A1C1F);
+
+        int padX = winX + 6;
+        int innerW = winW - 12;
+        int curY = bodyTop + 5 - satisfactoryScrollOffset;
+
+        context.enableScissor(winX, bodyTop, winX + winW, footerTop);
+
+        // --- SECTION 1: PUBLIC NOTES (FTB Team Shared) ---
+        curY = renderSatisfactorySectionBar(context, padX, curY, innerW, "Public Notes", true);
+        List<Task> publicNotes = getSatisfactoryPublicNotes();
+        curY = renderSatisfactoryNoteBox(context, padX, curY, innerW, publicNotes,
+                "Add Public Notes... (Click to type)", ActiveNoteEditMode.PUBLIC, mouseX, mouseY);
+        curY += 6;
+
+        // --- SECTION 2: PRIVATE NOTES (Personal) ---
+        curY = renderSatisfactorySectionBar(context, padX, curY, innerW, "Private Notes", true);
+        List<Task> privateNotes = getSatisfactoryPrivateNotes();
+        curY = renderSatisfactoryNoteBox(context, padX, curY, innerW, privateNotes,
+                "Add Private Notes... (Click to type)", ActiveNoteEditMode.PRIVATE, mouseX, mouseY);
+        curY += 6;
+
+        // --- SECTION 3: RECIPES ---
+        curY = renderSatisfactorySectionBar(context, padX, curY, innerW, "Recipes", false);
+        List<Task> recipeTasks = getSatisfactoryRecipes();
+
+        // Quick Add Recipe Bar (e.g. "Iron Rod | minecraft:iron_ingot:4")
+        boolean editingRecipe = (activeNoteMode == ActiveNoteEditMode.RECIPE);
+        boolean hoverAddRecipe = mouseX >= padX && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 18;
+        context.fill(padX, curY, padX + innerW, curY + 18, editingRecipe ? 0xFF282B30 : (hoverAddRecipe ? 0x5532353C : 0x22000000));
+        if (editingRecipe) {
+            context.renderOutline(padX, curY, innerW, 18, 0xFFE59344);
+            String cursor = (System.currentTimeMillis() / 500) % 2 == 0 ? "_" : "";
+            context.drawString(font, "+ " + satisfactoryInputBuffer + cursor, padX + 4, curY + 5, 0xFFFFFFFF, false);
+        } else {
+            context.drawString(font, "+ Add Recipe / Item (e.g. iron_ingot:16)...", padX + 4, curY + 5, 0xFF8A8E94, false);
         }
-        /*
-        if (searchField != null) {
-            int sy = searchField.getY() + (searchField.getHeight() - textH) / 2;
-            int searchLabelX = searchField.getX() - 40;
-            context.drawString(this.font, Component.translatable("gui.todolist.label.search"), searchLabelX, sy, color, false);
+        curY += 22;
+
+        for (Task recipe : recipeTasks) {
+            curY = renderSatisfactoryGuiRecipeEntry(context, padX + 4, curY, innerW - 8, recipe, mouseX, mouseY);
         }
-        */
-        TodoScreenRenderSupport.renderProjectSearchPrefixDropdown(
-                context,
-                mouseX,
-                mouseY,
-                this.font,
-                projectSearchField,
-                projectSearchPrefixDropdownOpen,
-                currentSpaceMode == SpaceMode.TEAM,
-                isSidebarPanelVisible()
-        );
-        renderTaskContextMenu(context, mouseX, mouseY);
-        TodoScreenRenderSupport.renderNotifications(
-                context,
-                this.font,
-                this.width,
-                layoutMetrics,
-                notifications
-        );
+
+        context.disableScissor();
+
+        // 3. Bottom "Clear List" Bar
+        boolean clearHover = mouseX >= winX && mouseX < winX + winW && mouseY >= footerTop && mouseY < winY + winH;
+        context.fill(winX, footerTop, winX + winW, winY + winH, clearHover ? 0xFF6E727A : 0xFF5A5E66);
+        context.drawCenteredString(font, "🗑  Clear List", winX + winW / 2, footerTop + 9, 0xFFFFFFFF);
+
+        context.renderOutline(winX, winY, winW, winH, 0xFF141518);
+    }
+
+    private int renderSatisfactorySectionBar(GuiGraphics context, int x, int y, int width, String title, boolean showHelpIcon) {
+        int h = 16;
+        context.fill(x, y, x + width, y + h, 0xFF3A3D42);
+        if (showHelpIcon) {
+            context.drawString(font, "?", x + 5, y + 4, 0xFFD8DEE9, false);
+        }
+        context.drawCenteredString(font, title, x + width / 2, y + 4, 0xFFFFFFFF);
+        return y + h + 3;
+    }
+
+    private int renderSatisfactoryNoteBox(GuiGraphics context, int x, int y, int width, List<Task> notes,
+                                          String placeholder, ActiveNoteEditMode mode, int mouseX, int mouseY) {
+        int curY = y;
+        for (Task note : notes) {
+            String text = note.getTitle() == null ? "" : note.getTitle();
+            boolean rowHover = mouseX >= x && mouseX < x + width && mouseY >= curY && mouseY < curY + 14;
+            if (rowHover) {
+                context.fill(x, curY, x + width, curY + 14, 0x44FFFFFF);
+                context.drawString(font, "✕", x + width - 10, curY + 3, 0xFFFF6B6B, false);
+            }
+            context.drawString(font, "• " + text, x + 4, curY + 3, 0xFFE8ECEF, false);
+            curY += 14;
+        }
+
+        boolean isEditing = (activeNoteMode == mode);
+        int boxH = 20;
+        context.fill(x, curY, x + width, curY + boxH, isEditing ? 0xFF26292E : 0x33101214);
+        if (isEditing) {
+            context.renderOutline(x, curY, width, boxH, 0xFFE59344);
+            String cursor = (System.currentTimeMillis() / 500) % 2 == 0 ? "_" : "";
+            context.drawString(font, satisfactoryInputBuffer + cursor, x + 4, curY + 6, 0xFFFFFFFF, false);
+        } else {
+            context.drawString(font, placeholder, x + 4, curY + 6, 0xFF8A8E94, false);
+        }
+        return curY + boxH;
+    }
+
+    /**
+     * Renders a Recipe entry in the GUI with [-] and [+] buttons, white divider line,
+     * ingredient progress bar, and 18x18 item icon box on the right (matches Screenshot 2).
+     */
+    private int renderSatisfactoryGuiRecipeEntry(GuiGraphics context, int x, int y, int width, Task task, int mouseX, int mouseY) {
+        int curY = y;
+        int multiplier = TodoHudRenderer.parseMultiplierFromTags(task);
+
+        // [-] and [+] Buttons on the left
+        boolean minusHover = mouseX >= x && mouseX < x + 12 && mouseY >= curY + 2 && mouseY < curY + 14;
+        boolean plusHover  = mouseX >= x + 14 && mouseX < x + 26 && mouseY >= curY + 2 && mouseY < curY + 14;
+        context.drawString(font, "—", x + 2, curY + 4, minusHover ? 0xFFE59344 : 0xFF9EA4B0, false);
+        context.drawString(font, "+", x + 16, curY + 4, plusHover ? 0xFFE59344 : 0xFF9EA4B0, false);
+
+        int titleX = x + 32;
+        if (task.getDescription() != null && !task.getDescription().isBlank()) {
+            context.pose().pushPose();
+            context.pose().translate(titleX, curY, 0);
+            context.pose().scale(0.72f, 0.72f, 1.0f);
+            context.drawString(font, task.getDescription(), 0, 0, 0xFF9EA4B0, false);
+            context.pose().popPose();
+            curY += 8;
+        }
+
+        String title = (task.getTitle() == null || task.getTitle().isBlank()) ? "Recipe" : task.getTitle();
+        String qtyStr = String.valueOf(multiplier);
+        context.drawString(font, title, titleX, curY + 2, 0xFFFFFFFF, false);
+        context.drawString(font, qtyStr, x + width - font.width(qtyStr), curY + 2, 0xFFFFFFFF, false);
+        curY += 13;
+
+        // 1px White Horizontal Line
+        context.fill(x, curY, x + width, curY + 1, 0xFFD8DEE9);
+        curY += 5;
+
+        // Ingredients
+        List<TodoHudRenderer.ParsedItemRequirement> reqs = TodoHudRenderer.parseAllTaskItemRequirements(task);
+        for (TodoHudRenderer.ParsedItemRequirement req : reqs) {
+            int have = (minecraft != null && minecraft.player != null)
+                    ? TodoHudRenderer.countItemInPlayerInventory(minecraft.player, req.item())
+                    : 0;
+            int needed = Math.max(1, req.neededCount() * multiplier);
+            float progress = Math.clamp((float) have / needed, 0.0f, 1.0f);
+
+            int iconBoxSize = 20;
+            int iconBoxX = x + width - iconBoxSize;
+            int barWidth = width - iconBoxSize - 6;
+
+            String ingName = req.stack().getHoverName().getString();
+            String ratioStr = have + " / " + needed;
+            context.drawString(font, ingName, x, curY + 2, 0xFFE5E9F0, false);
+            context.drawString(font, ratioStr, iconBoxX - 6 - font.width(ratioStr), curY + 2,
+                    have >= needed ? 0xFF66BB6A : 0xFFFFFFFF, false);
+
+            int barY = curY + 14;
+            context.fill(x, barY, x + barWidth, barY + 3, 0xAA282B30);
+            if (progress > 0.0f) {
+                int fillW = Math.max(1, Math.round(barWidth * progress));
+                context.fill(x, barY, x + fillW, barY + 3, have >= needed ? 0xFF66BB6A : 0xFFE59344);
+            }
+
+            context.fill(iconBoxX, curY, iconBoxX + iconBoxSize, curY + iconBoxSize, 0xCC5A5E66);
+            context.renderOutline(iconBoxX, curY, iconBoxSize, iconBoxSize, 0xFF282B30);
+            context.renderItem(req.stack(), iconBoxX + 2, curY + 2);
+            curY += 23;
+        }
+
+        return curY + 4;
+    }
+
+    private List<Task> getSatisfactoryPublicNotes() {
+        if (teamTaskManager == null) return List.of();
+        List<Task> list = new ArrayList<>();
+        for (Task t : teamTaskManager.getAllTasks()) {
+            if (t != null && !t.isCompleted() && !TodoHudRenderer.isRecipeTask(t)) list.add(t);
+        }
+        return list;
+    }
+
+    private List<Task> getSatisfactoryPrivateNotes() {
+        if (personalTaskManager == null) return List.of();
+        List<Task> list = new ArrayList<>();
+        for (Task t : personalTaskManager.getAllTasks()) {
+            if (t != null && !t.isCompleted() && !TodoHudRenderer.isRecipeTask(t)) list.add(t);
+        }
+        return list;
+    }
+
+    private List<Task> getSatisfactoryRecipes() {
+        List<Task> list = new ArrayList<>();
+        if (personalTaskManager != null) {
+            for (Task t : personalTaskManager.getAllTasks()) {
+                if (t != null && !t.isCompleted() && TodoHudRenderer.isRecipeTask(t)) list.add(t);
+            }
+        }
+        if (teamTaskManager != null) {
+            for (Task t : teamTaskManager.getAllTasks()) {
+                if (t != null && !t.isCompleted() && TodoHudRenderer.isRecipeTask(t)) list.add(t);
+            }
+        }
+        return list;
+    }
+
+    private int renderSatisfactoryAccordionSection(GuiGraphics context, int x, int y, int width, String sectionTitle, boolean isNoteSection) {
+        int sectionH = 20;
+        context.fill(x, y, x + width, y + sectionH, 0xFF32353C);
+        context.renderOutline(x, y, width, sectionH, 0xFF1E2024);
+
+        // "?" icon on the left for notes
+        if (isNoteSection) {
+            context.drawString(font, "?", x + 8, y + 6, 0xFFE59344, false);
+            context.drawString(font, sectionTitle, x + 22, y + 6, 0xFFFFFFFF, false);
+        } else {
+            context.drawString(font, sectionTitle, x + 10, y + 6, 0xFFFFFFFF, false);
+        }
+
+        return y + sectionH + 6; // Spacing for next section
     }
 
     private void onSaveTasks() {
@@ -1699,6 +1888,22 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (activeNoteMode != ActiveNoteEditMode.NONE) {
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                commitSatisfactoryInput();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_BACKSPACE && !satisfactoryInputBuffer.isEmpty()) {
+                satisfactoryInputBuffer = satisfactoryInputBuffer.substring(0, satisfactoryInputBuffer.length() - 1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                activeNoteMode = ActiveNoteEditMode.NONE;
+                satisfactoryInputBuffer = "";
+                return true;
+            }
+            return true;
+        }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE
                 && TodoScreenContextMenuSupport.hasContextMenu(contextMenuTask, contextMenuItems)) {
             closeTaskContextMenu();
@@ -1749,268 +1954,150 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        syncTaskListReorderState();
-        if (handleContextMenuClick(mouseX, mouseY, button)) {
-            return true;
+        if (button != 0) {
+            return super.mouseClicked(mouseX, mouseY, button);
         }
-        boolean prefixDropdownVisible = TodoScreenProjectSearchSupport.shouldShowProjectSearchPrefixDropdown(
-                projectSearchPrefixDropdownOpen,
-                currentSpaceMode == SpaceMode.TEAM,
-                isSidebarPanelVisible(),
-                projectSearchField
-        );
-        boolean projectSearchFieldHit = TodoScreenProjectSearchSupport.isProjectSearchFieldHit(projectSearchField, mouseX, mouseY);
-        boolean insideProjectSearchPrefixDropdown = TodoScreenProjectSearchSupport.isInsideProjectSearchPrefixDropdown(
-                prefixDropdownVisible,
-                projectSearchField,
-                mouseX,
-                mouseY);
-        boolean mouseOverQuickAddMarker = false;
-        boolean mouseOverAnyTextField = TodoScreenHitTestSupport.isMouseOverAnyTextField(
-                mouseX,
-                mouseY,
-                searchField,
-                projectSearchField,
-                quickAddField,
-                titleField,
-                descField,
-                tagField,
-                false);
-        boolean sidebarToggleHovered = sidebarToggleButton != null && sidebarToggleButton.isMouseOver(mouseX, mouseY);
-        boolean insideSidebar = layoutMetrics != null && layoutMetrics.sidebarBounds.contains(mouseX, mouseY);
-        if (button == 0
-                && layoutMetrics != null
-                && layoutMetrics.sidebarOverlay
-                && layoutMetrics.sidebarVisible
-                && !insideSidebar
-                && !sidebarToggleHovered) {
-            sidebarOverlayVisible = false;
-            layoutMetrics = TodoScreenLayoutSupport.buildMainLayoutMetrics(
-                    ModConfig.getInstance(),
-                    responsiveTier,
-                    this.width,
-                    this.height,
-                    sidebarOverlayVisible,
-                    detailOverlayVisible,
-                    selectedTask != null);
-            applyResponsiveWidgetVisibility();
-        }
-        String clickedPrefix = button == 0
-                ? TodoScreenProjectSearchSupport.resolveClickedProjectSearchPrefix(
-                        prefixDropdownVisible,
-                        projectSearchField,
-                        mouseX,
-                        mouseY)
-                : null;
-        if (clickedPrefix != null) {
-            String current = projectSearchField == null ? "" : projectSearchField.getValue();
-            String nextValue = TodoScreenProjectSearchSupport.buildProjectSearchValueWithPrefix(current, clickedPrefix);
-            if (projectSearchField != null) {
-                projectSearchField.setValue(nextValue);
-                projectSearchField.setFocused(true);
-                this.setFocused(projectSearchField);
+
+        int winW = 240;
+        int winH = Math.min(340, this.height - 28);
+        int winX = (this.width - winW) / 2;
+        int winY = (this.height - winH) / 2;
+
+        // 1. Top Header Close ('X') & Config ('⚙') Buttons
+        if (mouseY >= winY && mouseY < winY + 22) {
+            if (mouseX >= winX + winW - 26 && mouseX < winX + winW) {
+                this.onClose();
+                return true;
             }
-            projectSearchQuery = nextValue;
-            updateProjectList();
-            projectSearchPrefixDropdownOpen = false;
-            return true;
+            if (mouseX >= winX + winW - 50 && mouseX < winX + winW - 26) {
+                if (this.minecraft != null) {
+                    this.minecraft.setScreen(new ConfigScreen(this));
+                }
+                return true;
+            }
         }
-        if ((button == 0 || button == 1)
-                && prefixDropdownVisible
-                && !projectSearchFieldHit
-                && !insideProjectSearchPrefixDropdown) {
-            projectSearchPrefixDropdownOpen = false;
-        }
-        if (button == 0
-                && TodoScreenProjectSearchSupport.canUseProjectSearchPrefixDropdown(
-                        currentSpaceMode == SpaceMode.TEAM,
-                        isSidebarPanelVisible()
-                )
-                && projectSearchFieldHit) {
-            projectSearchPrefixDropdownOpen = true;
-        }
-        refreshClearCompletedButtonState();
-        if (button == 0
-                && clearCompletedButton != null
-                && clearCompletedButton.visible
-                && clearCompletedButton.active
-                && clearCompletedButton.isMouseOver(mouseX, mouseY)) {
-            clearCompletedButton.onPress();
-            return true;
-        }
-        if (button == 0
-                && saveButton != null
-                && saveButton.visible
-                && saveButton.active
-                && saveButton.isMouseOver(mouseX, mouseY)) {
-            saveButton.onPress();
-            return true;
-        }
-        if (button == 0
-                && cancelButton != null
-                && cancelButton.visible
-                && cancelButton.active
-                && cancelButton.isMouseOver(mouseX, mouseY)) {
-            cancelButton.onPress();
-            return true;
-        }
-        if (button == 0
-                && addSubtaskButton != null
-                && addSubtaskButton.visible
-                && addSubtaskButton.active
-                && addSubtaskButton.isMouseOver(mouseX, mouseY)) {
-            addSubtaskButton.onPress();
-            return true;
-        }
-        boolean clickInsideVisibleDetailPanel = layoutMetrics != null
-                && layoutMetrics.detailVisible
-                && selectedTask != null
-                && layoutMetrics.detailBounds.contains(mouseX, mouseY);
-        if (button == 0 && !clickInsideVisibleDetailPanel) {
-            discardSelectedEmptyPlaceholderSubtask();
-        }
-        if (!clickInsideVisibleDetailPanel
-                && taskListWidget != null
-                && taskListWidget.mouseClicked(mouseX, mouseY, button)) {
-            resetTaskRowDragState();
-            closeTaskContextMenu();
-            return true;
-        }
-        if (!clickInsideVisibleDetailPanel
-                && projectListWidget != null
-                && isSidebarPanelVisible()
-                && projectListWidget.mouseClicked(mouseX, mouseY, button)) {
-            resetTaskRowDragState();
-            closeTaskContextMenu();
+
+        // 2. Bottom "Clear List" Button
+        int footerTop = winY + winH - 26;
+        if (mouseX >= winX && mouseX < winX + winW && mouseY >= footerTop && mouseY < winY + winH) {
+            if (personalTaskManager != null) personalTaskManager.clearAll();
+            if (teamTaskManager != null) teamTaskManager.clearAll();
+            personalHasUnsavedChanges = true;
+            teamHasUnsavedChanges = true;
+            personalSaveVersion++;
+            teamSaveVersion++;
+            publishPersonalTasksToHud();
+            persistDirtyTasksInBackground("clear_all", false, true, true);
             return true;
         }
 
-        if (!clickInsideVisibleDetailPanel && taskListWidget != null) {
-            TaskListWidget.TaskSectionHitResult sectionHit = taskListWidget.getSectionAt(mouseX, mouseY);
-            Task clickedTask = taskListWidget.getTaskAt((int) mouseX, (int) mouseY);
-            if (button == 0
-                    && sectionHit != null
-                    && sectionHit.getRowType() == TaskListWidget.RowType.SECTION_HEADER
-                    && toggleTaskSection(sectionHit.getSectionId())) {
-                applySearchFilter();
-                resetTaskRowDragState();
-                closeTaskContextMenu();
+        // 3. Body Click Handling (Public Notes, Private Notes, Recipes, and [-]/[+] buttons)
+        int padX = winX + 6;
+        int innerW = winW - 12;
+        int curY = (winY + 27) - satisfactoryScrollOffset;
+
+        // --- SECTION 1: PUBLIC NOTES ---
+        curY += 19;
+        for (Task note : getSatisfactoryPublicNotes()) {
+            if (mouseX >= padX + innerW - 14 && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 14) {
+                if (teamTaskManager != null) {
+                    teamTaskManager.deleteTask(note.getId());
+                    teamHasUnsavedChanges = true;
+                    teamSaveVersion++;
+                    persistDirtyTasksInBackground("del_public_note", false, false, true);
+                }
                 return true;
             }
-            if (clickedTask != null) {
-                if (button == 0
-                        && selectedTask != null
-                        && !Objects.equals(clickedTask.getId(), selectedTask.getId())) {
-                    discardSelectedEmptyPlaceholderSubtask();
+            curY += 14;
+        }
+        if (mouseX >= padX && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 20) {
+            activeNoteMode = ActiveNoteEditMode.PUBLIC;
+            satisfactoryInputBuffer = "";
+            return true;
+        }
+        curY += 26;
+
+        // --- SECTION 2: PRIVATE NOTES ---
+        curY += 19;
+        for (Task note : getSatisfactoryPrivateNotes()) {
+            if (mouseX >= padX + innerW - 14 && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 14) {
+                if (personalTaskManager != null) {
+                    personalTaskManager.deleteTask(note.getId());
+                    personalHasUnsavedChanges = true;
+                    personalSaveVersion++;
+                    publishPersonalTasksToHud();
+                    persistDirtyTasksInBackground("del_private_note", false, true, false);
                 }
-                if (button == 0
-                        && sectionHit != null
-                        && (sectionHit.getRowType() == TaskListWidget.RowType.TASK
-                        || sectionHit.getRowType() == TaskListWidget.RowType.SUBTASK)
-                        && TodoScreenPermissionSupport.canTaskReorderInView(
-                        this.minecraft,
-                        currentProject,
-                        viewMode.name())
-                        && taskListWidget.canStartDrag(clickedTask)) {
-                    String dragSectionId = sectionHit == null ? "active" : sectionHit.getSectionId();
-                    taskListWidget.armPendingTaskDrag(clickedTask, dragSectionId, mouseX, mouseY);
-                    pendingClickSelectionTask = clickedTask;
-                    closeTaskContextMenu();
-                    return true;
-                }
-                resetTaskRowDragState();
-                selectTask(clickedTask);
-                if (button == 1) {
-                    openTaskContextMenu(clickedTask, (int) mouseX, (int) mouseY);
+                return true;
+            }
+            curY += 14;
+        }
+        if (mouseX >= padX && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 20) {
+            activeNoteMode = ActiveNoteEditMode.PRIVATE;
+            satisfactoryInputBuffer = "";
+            return true;
+        }
+        curY += 26;
+
+        // --- SECTION 3: RECIPES ---
+        curY += 19;
+        if (mouseX >= padX && mouseX < padX + innerW && mouseY >= curY && mouseY < curY + 18) {
+            activeNoteMode = ActiveNoteEditMode.RECIPE;
+            satisfactoryInputBuffer = "";
+            return true;
+        }
+        curY += 22;
+
+        for (Task recipe : getSatisfactoryRecipes()) {
+            int rx = padX + 4;
+            int mult = TodoHudRenderer.parseMultiplierFromTags(recipe);
+
+            // [-] button
+            if (mouseX >= rx && mouseX < rx + 12 && mouseY >= curY + 2 && mouseY < curY + 14) {
+                if (mult <= 1) {
+                    if (personalTaskManager != null) personalTaskManager.deleteTask(recipe.getId());
+                    if (teamTaskManager != null) teamTaskManager.deleteTask(recipe.getId());
                 } else {
-                    closeTaskContextMenu();
+                    updateRecipeMultiplierTag(recipe, mult - 1);
                 }
+                personalHasUnsavedChanges = true;
+                personalSaveVersion++;
+                publishPersonalTasksToHud();
+                persistDirtyTasksInBackground("dec_recipe", false, true, false);
                 return true;
             }
+
+            // [+] button
+            if (mouseX >= rx + 14 && mouseX < rx + 26 && mouseY >= curY + 2 && mouseY < curY + 14) {
+                updateRecipeMultiplierTag(recipe, mult + 1);
+                personalHasUnsavedChanges = true;
+                personalSaveVersion++;
+                publishPersonalTasksToHud();
+                persistDirtyTasksInBackground("inc_recipe", false, true, false);
+                return true;
+            }
+
+            int subH = (recipe.getDescription() != null && !recipe.getDescription().isBlank()) ? 8 : 0;
+            int reqCount = Math.max(1, TodoHudRenderer.parseAllTaskItemRequirements(recipe).size());
+            curY += subH + 18 + (reqCount * 23) + 4;
         }
 
-        if (button == 0
-                && titleField != null
-                && titleField.visible
-                && titleField.isMouseOver(mouseX, mouseY)
-                && (detailDraft == null || !detailDraft.titleEditing)) {
-            beginDetailTitleEditing();
+        // Clicked outside any active input box -> commit or cancel active typing
+        if (activeNoteMode != ActiveNoteEditMode.NONE) {
+            commitSatisfactoryInput();
             return true;
         }
 
-        if (button == 0 && mouseOverQuickAddMarker && quickAddField != null) {
-            quickAddField.setFocused(true);
-            this.setFocused(quickAddField);
-            closeTaskContextMenu();
-            return true;
-        }
-
-        boolean contextMenuHit = TodoScreenContextMenuSupport.hasContextMenu(contextMenuTask, contextMenuItems)
-                && TodoScreenContextMenuSupport.isInsideContextMenu(
-                mouseX,
-                mouseY,
-                contextMenuX,
-                contextMenuY,
-                contextMenuWidth,
-                TodoScreenContextMenuSupport.resolveMenuHeight(contextMenuItems.size(), contextMenuItemHeight));
-        boolean clickInEditArea = TodoScreenHitTestSupport.isClickInEditArea(
-                mouseX,
-                mouseY,
-                searchField,
-                projectSearchField,
-                quickAddField,
-                titleField,
-                descField,
-                tagField,
-                false,
-                detailCloseButton,
-                addSubtaskButton,
-                claimButton,
-                abandonButton,
-                assignOthersButton,
-                contextMenuHit);
-        boolean detailBlankClicked = button == 0
-                && selectedTask != null
-                && layoutMetrics != null
-                && layoutMetrics.detailVisible
-                && layoutMetrics.detailBounds.contains(mouseX, mouseY)
-                && !clickInEditArea;
-        if ((button == 0 || button == 1) && !mouseOverAnyTextField) {
-            clearTextFieldFocus();
-        }
-        resetTaskRowDragState();
-        boolean cleared = false;
-        if (button == 0 && selectedTask != null && !detailBlankClicked && !clickInEditArea) {
-            triggerAutoSaveIfNeeded("auto_clear_selection", false);
-            clearSelectedTask();
-            cleared = true;
-        }
-        if (button == 0 || button == 1) {
-            closeTaskContextMenu();
-        }
-        if (detailBlankClicked) {
-            return true;
-        }
-        if (this.minecraft == null || Minecraft.getInstance() == null) {
-            return cleared;
-        }
-        boolean handled = super.mouseClicked(mouseX, mouseY, button);
-        return handled || cleared;
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        boolean handled = false;
-        if (taskListWidget != null) {
-            handled = taskListWidget.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        if (verticalAmount != 0) {
+            satisfactoryScrollOffset = Math.max(0, satisfactoryScrollOffset - (int) (verticalAmount * 18));
+            return true;
         }
-        if (!handled && projectListWidget != null && isSidebarPanelVisible()) {
-            handled = projectListWidget.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-        }
-        if (!handled) {
-            handled = super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
-        }
-        return handled;
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
     @Override
@@ -4356,4 +4443,287 @@ public class TodoScreen extends Screen implements ProjectManager.ProjectChangeLi
         }));
     }
 
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (activeNoteMode != ActiveNoteEditMode.NONE && Character.isLetterOrDigit(codePoint)
+                || " :_*+-.,!?()/[]'".indexOf(codePoint) >= 0) {
+            if (satisfactoryInputBuffer.length() < 80) {
+                satisfactoryInputBuffer += codePoint;
+            }
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+    private void commitSatisfactoryInput() {
+        String text = satisfactoryInputBuffer.trim();
+        satisfactoryInputBuffer = "";
+        if (text.isEmpty()) {
+            activeNoteMode = ActiveNoteEditMode.NONE;
+            return;
+        }
+
+        if (activeNoteMode == ActiveNoteEditMode.PUBLIC && teamTaskManager != null) {
+            Project teamProj = TodoScreenProjectPreferenceSupport.getPreferredProjectForScope(
+                    projectManager, Project.Scope.TEAM, true, preferredTeamProjectId, preferredPersonalProjectId);
+            Task note = teamTaskManager.addTask(text, "");
+            note.setScope(Task.Scope.TEAM);
+            if (teamProj != null) note.setProjectId(teamProj.getId());
+            note.setTags(List.of("public_note"));
+            teamHasUnsavedChanges = true;
+            teamSaveVersion++;
+            persistDirtyTasksInBackground("add_public_note", false, false, true);
+        } else if (activeNoteMode == ActiveNoteEditMode.PRIVATE && personalTaskManager != null) {
+            Project persProj = TodoScreenProjectPreferenceSupport.getPreferredProjectForScope(
+                    projectManager, Project.Scope.PERSONAL, true, preferredTeamProjectId, preferredPersonalProjectId);
+            Task note = personalTaskManager.addTask(text, "");
+            note.setScope(Task.Scope.PERSONAL);
+            if (persProj != null) note.setProjectId(persProj.getId());
+            note.setTags(List.of("private_note"));
+            personalHasUnsavedChanges = true;
+            personalSaveVersion++;
+            publishPersonalTasksToHud();
+            persistDirtyTasksInBackground("add_private_note", false, true, false);
+        } else if (activeNoteMode == ActiveNoteEditMode.RECIPE && personalTaskManager != null) {
+            Project persProj = TodoScreenProjectPreferenceSupport.getPreferredProjectForScope(
+                    projectManager, Project.Scope.PERSONAL, true, preferredTeamProjectId, preferredPersonalProjectId);
+
+            String title = text;
+            String itemTag = text;
+            boolean isCustomIngredientList = false;
+
+            if (text.contains("|")) {
+                String[] parts = text.split("\\|", 2);
+                title = parts[0].trim();
+                itemTag = parts[1].trim();
+                isCustomIngredientList = true;
+            }
+
+            int initialQty = 1;
+            if (!isCustomIngredientList) {
+                int colonIdx = itemTag.lastIndexOf(':');
+                int starIdx = itemTag.lastIndexOf('*');
+                if (starIdx > 0) {
+                    try { initialQty = Math.max(1, Integer.parseInt(itemTag.substring(starIdx + 1).trim())); } catch (Exception ignored) {}
+                    itemTag = itemTag.substring(0, starIdx).trim();
+                } else if (colonIdx > 0 && itemTag.substring(colonIdx + 1).trim().matches("\\d+")) {
+                    try { initialQty = Math.max(1, Integer.parseInt(itemTag.substring(colonIdx + 1).trim())); } catch (Exception ignored) {}
+                    itemTag = itemTag.substring(0, colonIdx).trim();
+                }
+            }
+
+            Task recipe = personalTaskManager.addTask(title, "Recipe: " + title);
+            recipe.setScope(Task.Scope.PERSONAL);
+            if (persProj != null) recipe.setProjectId(persProj.getId());
+
+            List<String> tags = new ArrayList<>();
+            tags.add("recipe");
+            tags.add("qty:" + initialQty);
+            if (isCustomIngredientList) {
+                tags.add("raw_ingredients");
+                for (String part : itemTag.split(",")) {
+                    if (!part.isBlank()) tags.add(part.trim());
+                }
+            } else {
+                net.minecraft.world.item.Item foundItem = TodoHudRenderer.findItemByIdOrDisplayName(itemTag);
+                if (foundItem != net.minecraft.world.item.Items.AIR) {
+                    net.minecraft.resources.ResourceLocation key = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(foundItem);
+                    String dispName = new net.minecraft.world.item.ItemStack(foundItem).getHoverName().getString();
+                    recipe.setTitle(dispName);
+                    recipe.setDescription("Recipe: " + dispName);
+                    tags.add(key.toString() + ":1");
+                } else {
+                    tags.add(itemTag);
+                }
+            }
+            recipe.setTags(tags);
+
+            personalHasUnsavedChanges = true;
+            personalSaveVersion++;
+            publishPersonalTasksToHud();
+            persistDirtyTasksInBackground("add_recipe", false, true, false);
+        }
+
+        activeNoteMode = ActiveNoteEditMode.NONE;
+    }
+
+    private void updateRecipeMultiplierTag(Task recipe, int newMult) {
+        List<String> updated = new ArrayList<>();
+        boolean found = false;
+        for (String t : recipe.getTags()) {
+            if (t != null && t.startsWith("qty:")) {
+                updated.add("qty:" + Math.max(1, newMult));
+                found = true;
+            } else if (t != null) {
+                updated.add(t);
+            }
+        }
+        if (!found) {
+            updated.add("qty:" + Math.max(1, newMult));
+        }
+        recipe.setTags(updated);
+    }
+
+    /**
+     * Returns the current multiplier count for a pinned recipe output item in the To-Do List (0 if not pinned).
+     */
+    public static int getPinnedRecipeCount(net.minecraft.world.item.Item outputItem) {
+        if (outputItem == null || outputItem == net.minecraft.world.item.Items.AIR) return 0;
+        Minecraft mc = Minecraft.getInstance();
+        String itemKey = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(outputItem).toString();
+        String displayName = new net.minecraft.world.item.ItemStack(outputItem).getHoverName().getString();
+
+        List<Task> tasks = getOrLoadPersonalTasks(mc);
+        for (Task t : tasks) {
+            if (t == null || t.isCompleted() || !TodoHudRenderer.isRecipeTask(t)) continue;
+            if (matchesRecipeTask(t, itemKey, displayName)) {
+                return TodoHudRenderer.parseMultiplierFromTags(t);
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Adds a recipe (with its exact ingredients) to the To-Do List, or increments its multiplier if already present.
+     */
+    public static void addOrIncrementRecipeTask(
+            net.minecraft.world.item.ItemStack outputStack,
+            List<TodoHudRenderer.ParsedItemRequirement> ingredients,
+            String categoryName,
+            int amountToAdd) {
+
+        if (outputStack == null || outputStack.isEmpty() || amountToAdd <= 0) return;
+        Minecraft mc = Minecraft.getInstance();
+        String itemKey = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(outputStack.getItem()).toString();
+        String displayName = outputStack.getHoverName().getString();
+
+        List<Task> currentTasks = new ArrayList<>(getOrLoadPersonalTasks(mc));
+        Task existing = null;
+        for (Task t : currentTasks) {
+            if (t != null && !t.isCompleted() && TodoHudRenderer.isRecipeTask(t) && matchesRecipeTask(t, itemKey, displayName)) {
+                existing = t;
+                break;
+            }
+        }
+
+        String subtitle = (categoryName != null && !categoryName.isBlank())
+                ? "Recipe: " + categoryName + " (" + displayName + ")"
+                : "Recipe: " + displayName;
+
+        if (existing != null) {
+            int newMult = TodoHudRenderer.parseMultiplierFromTags(existing) + amountToAdd;
+            List<String> updatedTags = new ArrayList<>();
+            updatedTags.add("recipe");
+            updatedTags.add("raw_ingredients");
+            updatedTags.add("target_item:" + itemKey);
+            updatedTags.add("qty:" + newMult);
+            if (ingredients != null && !ingredients.isEmpty()) {
+                for (TodoHudRenderer.ParsedItemRequirement req : ingredients) {
+                    String ingKey = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(req.item()).toString();
+                    updatedTags.add(ingKey + ":" + Math.max(1, req.neededCount()));
+                }
+            } else {
+                updatedTags.add(itemKey + ":1");
+            }
+            existing.setTags(updatedTags);
+            existing.setDescription(subtitle);
+        } else {
+            Task recipeTask = new Task(displayName, subtitle);
+            recipeTask.setScope(Task.Scope.PERSONAL);
+            Project persProj = TodoScreenProjectPreferenceSupport.getPreferredProjectForScope(
+                    TodoListCommon.getProjectManager(), Project.Scope.PERSONAL, true, null, null);
+            if (persProj != null) {
+                recipeTask.setProjectId(persProj.getId());
+            }
+
+            List<String> tags = new ArrayList<>();
+            tags.add("recipe");
+            tags.add("raw_ingredients");
+            tags.add("target_item:" + itemKey);
+            tags.add("qty:" + amountToAdd);
+            if (ingredients != null && !ingredients.isEmpty()) {
+                for (TodoHudRenderer.ParsedItemRequirement req : ingredients) {
+                    String ingKey = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(req.item()).toString();
+                    tags.add(ingKey + ":" + Math.max(1, req.neededCount()));
+                }
+            } else {
+                tags.add(itemKey + ":1");
+            }
+            recipeTask.setTags(tags);
+            currentTasks.add(recipeTask);
+        }
+
+        saveAndSyncExternalPersonalTasks(mc, currentTasks);
+    }
+
+    /**
+     * Decrements a pinned recipe's multiplier in the To-Do List, removing it when it reaches 0.
+     */
+    public static void removeOrDecrementRecipeTask(net.minecraft.world.item.ItemStack outputStack, int amountToRemove) {
+        if (outputStack == null || outputStack.isEmpty() || amountToRemove <= 0) return;
+        Minecraft mc = Minecraft.getInstance();
+        String itemKey = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(outputStack.getItem()).toString();
+        String displayName = outputStack.getHoverName().getString();
+
+        List<Task> currentTasks = new ArrayList<>(getOrLoadPersonalTasks(mc));
+        for (int i = 0; i < currentTasks.size(); i++) {
+            Task t = currentTasks.get(i);
+            if (t != null && !t.isCompleted() && TodoHudRenderer.isRecipeTask(t) && matchesRecipeTask(t, itemKey, displayName)) {
+                int mult = TodoHudRenderer.parseMultiplierFromTags(t);
+                if (mult <= amountToRemove) {
+                    currentTasks.remove(i);
+                } else {
+                    List<String> updated = new ArrayList<>();
+                    for (String tag : t.getTags()) {
+                        if (tag != null && tag.startsWith("qty:")) {
+                            updated.add("qty:" + (mult - amountToRemove));
+                        } else if (tag != null) {
+                            updated.add(tag);
+                        }
+                    }
+                    t.setTags(updated);
+                }
+                saveAndSyncExternalPersonalTasks(mc, currentTasks);
+                return;
+            }
+        }
+    }
+
+    private static boolean matchesRecipeTask(Task task, String itemKey, String displayName) {
+        if (task.getTags() != null) {
+            for (String tag : task.getTags()) {
+                if (("target_item:" + itemKey).equalsIgnoreCase(tag)) return true;
+            }
+        }
+        return task.getTitle() != null && task.getTitle().equalsIgnoreCase(displayName);
+    }
+
+    private static List<Task> getOrLoadPersonalTasks(Minecraft mc) {
+        String ns = DataPathProvider.getStorageNamespace();
+        if (ns.equals(cachedPersonalTasksNamespace) && cachedPersonalTasksSnapshot != null && !cachedPersonalTasksSnapshot.isEmpty()) {
+            return copyTasks(cachedPersonalTasksSnapshot);
+        }
+        List<Task> loaded = ClientTaskStorageHelper.loadPersonalTasksSafe(TodoListCommon.getTaskStorage(), mc);
+        updateCachedPersonalTasksSnapshot(ns, loaded);
+        return loaded;
+    }
+
+    private static void saveAndSyncExternalPersonalTasks(Minecraft mc, List<Task> updatedTasks) {
+        String ns = DataPathProvider.getStorageNamespace();
+        updateCachedPersonalTasksSnapshot(ns, updatedTasks);
+        TodoHudRenderer renderer = ClientPlatformAdapter.getHudRenderer();
+        if (renderer != null) {
+            renderer.syncPersonalTasksFromGui(updatedTasks);
+        }
+        if (ClientBridge.ops() != null) {
+            ClientBridge.ops().sendReplaceAllTasks(updatedTasks);
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                ClientTaskStorageHelper.savePersonalTasks(TodoListCommon.getTaskStorage(), mc, updatedTasks);
+            } catch (Exception e) {
+                TodoConstants.LOGGER.error("Failed to save To-Do recipe task from Recipe Viewer", e);
+            }
+        }, TASK_SAVE_EXECUTOR);
+    }
 }

@@ -332,8 +332,31 @@ final class AssignPlayerScreen extends Screen {
      * @param delta 渲染插值
      */
     @Override
+    public void renderBackground(GuiGraphics context, int mouseX, int mouseY, float delta) {}
+
+    @Override
     public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        context.fill(0, 0, this.width, this.height, ModConfig.getInstance().getBackgroundColor());
+        context.fill(0, 0, this.width, this.height, 0x78090A0C);
+
+        if (dialogLayout != null) {
+            int frameX = dialogLayout.dialogX() - 10;
+            int frameY = Math.max(4, dialogLayout.searchY() - 28);
+            int frameW = dialogLayout.dialogWidth() + 20;
+            int frameH = (dialogLayout.cancelY() + dialogLayout.cancelHeight() + 10) - frameY;
+
+            // FICSIT Header + Orange Accent
+            context.fill(frameX, frameY, frameX + frameW, frameY + 22, 0xF225272B);
+            context.fill(frameX, frameY + 20, frameX + frameW, frameY + 22, 0xFFE59344);
+            context.drawString(this.font, "❖", frameX + 8, frameY + 7, 0xFFE59344, false);
+            context.drawString(this.font, this.title, frameX + 20, frameY + 7, 0xFFFFFFFF, false);
+
+            // Modal Body & Member List Well
+            context.fill(frameX, frameY + 22, frameX + frameW, frameY + frameH, 0xEB181A1D);
+            context.fill(listX - 2, listY - 2, listX + listWidth + 2, listY + listHeight + 2, 0xFF121316);
+            context.renderOutline(listX - 2, listY - 2, listWidth + 4, listHeight + 4, 0xFF282B30);
+            context.renderOutline(frameX, frameY, frameW, frameH, 0xFF141518);
+        }
+
         super.render(context, mouseX, mouseY, delta);
     }
 

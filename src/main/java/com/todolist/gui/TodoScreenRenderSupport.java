@@ -14,17 +14,28 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
 
 /**
- * TodoScreen 渲染支持类，集中处理与主界面绘制相关的纯渲染逻辑。
+ * FICSIT-styled rendering support for TodoScreen (3-tier panel hierarchy, header bars, prefix dropdowns, and ADA toast notifications).
  */
 final class TodoScreenRenderSupport {
-    /**
-     * 工具类不允许实例化。
-     */
+
+    // Authentic Satisfactory FICSIT Palette
+    private static final int COL_HEADER_BG     = 0xF225272B;
+    private static final int COL_SIDEBAR_BG    = 0xEB23262A;
+    private static final int COL_CENTER_BG     = 0xE616181B;
+    private static final int COL_DETAIL_BG     = 0xF0202327;
+    private static final int COL_OVERLAY_BG    = 0xF5181A1D;
+    private static final int COL_BORDER_DARK   = 0xFF141518;
+    private static final int COL_BORDER_MID    = 0xFF32353C;
+    private static final int COL_FICSIT_ORANGE = 0xFFE59344;
+    private static final int COL_FICSIT_CYAN   = 0xFF4FC3F7;
+    private static final int TEXT_WHITE        = 0xFFFFFFFF;
+    private static final int TEXT_GRAY         = 0xFFB0B5BC;
+
     private TodoScreenRenderSupport() {
     }
 
     /**
-     * 绘制项目搜索前缀下拉菜单。
+     * Renders the FICSIT-styled project search prefix autocomplete dropdown.
      */
     static void renderProjectSearchPrefixDropdown(GuiGraphics context,
                                                   int mouseX,
@@ -52,8 +63,10 @@ final class TodoScreenRenderSupport {
         if (bounds[2] <= 0 || bounds[3] <= 0) {
             return;
         }
-        context.fill(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3], 0xEE0F141B);
-        context.renderOutline(bounds[0], bounds[1], bounds[2], bounds[3], 0xFF506070);
+
+        // FICSIT Dropdown Container
+        context.fill(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3], 0xF5181A1D);
+        context.renderOutline(bounds[0], bounds[1], bounds[2], bounds[3], COL_FICSIT_ORANGE);
 
         List<TodoScreenProjectSearchSupport.ProjectSearchPrefixOption> options =
                 TodoScreenProjectSearchSupport.getProjectSearchPrefixOptions();
@@ -68,24 +81,25 @@ final class TodoScreenRenderSupport {
             boolean hovered = mouseX >= itemBounds[0] && mouseX < itemBounds[0] + itemBounds[2]
                     && mouseY >= itemBounds[1] && mouseY < itemBounds[1] + itemBounds[3];
             if (hovered) {
-                context.fill(itemBounds[0], itemBounds[1], itemBounds[0] + itemBounds[2], itemBounds[1] + itemBounds[3], 0xFF223040);
+                context.fill(itemBounds[0] + 1, itemBounds[1], itemBounds[0] + itemBounds[2] - 1, itemBounds[1] + itemBounds[3], 0xFF2E323A);
+                context.fill(itemBounds[0] + 1, itemBounds[1], itemBounds[0] + 4, itemBounds[1] + itemBounds[3], COL_FICSIT_ORANGE);
             }
             int textY = itemBounds[1] + Math.max(0, (itemBounds[3] - font.lineHeight) / 2);
             TodoScreenProjectSearchSupport.ProjectSearchPrefixOption option = options.get(i);
-            context.drawString(font, option.prefix, itemBounds[0] + 4, textY, 0xFFE0B240, false);
+            context.drawString(font, option.prefix, itemBounds[0] + 6, textY, COL_FICSIT_ORANGE, false);
             context.drawString(
                     font,
                     TodoScreenProjectSearchSupport.getProjectSearchPrefixOptionDescription(option),
-                    itemBounds[0] + 34,
+                    itemBounds[0] + 36,
                     textY,
-                    0xFFD8E2EC,
+                    TEXT_GRAY,
                     false
             );
         }
     }
 
     /**
-     * 绘制内容区顶部摘要文本。
+     * Renders the active Project / Space / View header summary inside the center content column.
      */
     static void renderContentHeaderSummary(GuiGraphics context,
                                            Font font,
@@ -107,7 +121,10 @@ final class TodoScreenRenderSupport {
         if (summaryText.isEmpty()) {
             return;
         }
-        float scale = 1.0F;
+
+        boolean isFtbTeam = currentProject != null && currentProject.getId() != null && currentProject.getId().startsWith("ftbteam_");
+        String prefixSymbol = isFtbTeam ? "⚑ " : "❖ ";
+
         int startX = layoutMetrics.contentBounds.x + TodoScreenUiMetricsSupport.getContentControlInset(responsiveTier);
         if (sidebarToggleButton != null && sidebarToggleButton.visible) {
             startX = sidebarToggleButton.getX() + sidebarToggleButton.getWidth()
@@ -117,20 +134,16 @@ final class TodoScreenRenderSupport {
         if (maxWidth <= 12) {
             return;
         }
-        String displayText = TodoScreenTextSupport.trimTextToWidth(font, summaryText, Math.round(maxWidth / scale));
+        String displayText = TodoScreenTextSupport.trimTextToWidth(font, prefixSymbol + summaryText, maxWidth);
         if (displayText.isEmpty()) {
             return;
         }
-        int textHeight = Math.max(1, Math.round(font.lineHeight * scale));
-        int drawY = configButton.getY() + Math.max(0, (configButton.getHeight() - textHeight) / 2);
-        context.pose().pushPose();
-        context.pose().scale(scale, scale, 1.0F);
-        context.drawString(font, displayText, Math.round(startX / scale), Math.round(drawY / scale), 0xFFFFFFFF, false);
-        context.pose().popPose();
+        int drawY = configButton.getY() + Math.max(0, (configButton.getHeight() - font.lineHeight) / 2);
+        context.drawString(font, displayText, startX, drawY, isFtbTeam ? COL_FICSIT_ORANGE : TEXT_WHITE, false);
     }
 
     /**
-     * 绘制主界面三个面板（侧栏、内容、详情）的背景。
+     * Renders the 3 FICSIT panels: Left Sidebar, Center Task List, and Right Inspector Drawer.
      */
     static void renderLayoutPanels(GuiGraphics context,
                                    MainLayoutMetrics layoutMetrics,
@@ -139,30 +152,73 @@ final class TodoScreenRenderSupport {
         if (layoutMetrics == null) {
             return;
         }
-        renderPanelBackground(context, layoutMetrics.contentBounds, false);
+
+        // 1. Center Task List Column
+        renderFicsitPanel(
+                context,
+                layoutMetrics.contentBounds,
+                COL_CENTER_BG,
+                COL_FICSIT_ORANGE,
+                false
+        );
+
+        // 2. Left Project & Space Sidebar
         if (sidebarPanelVisible) {
-            renderPanelBackground(context, layoutMetrics.sidebarBounds, layoutMetrics.sidebarOverlay);
+            renderFicsitPanel(
+                    context,
+                    layoutMetrics.sidebarBounds,
+                    layoutMetrics.sidebarOverlay ? COL_OVERLAY_BG : COL_SIDEBAR_BG,
+                    COL_FICSIT_ORANGE,
+                    layoutMetrics.sidebarOverlay
+            );
         }
+
+        // 3. Right Task Detail Inspector Drawer
         if (detailPanelVisible) {
-            renderPanelBackground(context, layoutMetrics.detailBounds, layoutMetrics.detailOverlay);
+            renderFicsitPanel(
+                    context,
+                    layoutMetrics.detailBounds,
+                    layoutMetrics.detailOverlay ? COL_OVERLAY_BG : COL_DETAIL_BG,
+                    COL_FICSIT_CYAN,
+                    layoutMetrics.detailOverlay
+            );
         }
     }
 
     /**
-     * 绘制单个面板背景和描边。
+     * Draws an individual FICSIT panel with a Gunmetal top header strip, colored accent bar, and crisp border.
      */
-    private static void renderPanelBackground(GuiGraphics context, LayoutRect bounds, boolean overlay) {
+    private static void renderFicsitPanel(GuiGraphics context,
+                                          LayoutRect bounds,
+                                          int bodyFillColor,
+                                          int topAccentColor,
+                                          boolean isOverlay) {
         if (bounds == null || bounds.width <= 0 || bounds.height <= 0) {
             return;
         }
-        int fillColor = overlay ? 0xD91A1A1A : 0x8C111111;
-        int outlineColor = overlay ? 0xCCB8B8B8 : 0x66888888;
-        context.fill(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height, fillColor);
-        context.renderOutline(bounds.x, bounds.y, bounds.width, bounds.height, outlineColor);
+
+        int x = bounds.x;
+        int y = bounds.y;
+        int w = bounds.width;
+        int h = bounds.height;
+
+        // Main Panel Body
+        context.fill(x, y, x + w, y + h, bodyFillColor);
+
+        // Top Gunmetal Header Strip + 2px Accent Line
+        int headerH = Math.min(24, h);
+        context.fill(x, y, x + w, y + headerH, COL_HEADER_BG);
+        context.fill(x, y + headerH - 2, x + w, y + headerH, topAccentColor);
+
+        // Outer & Inner Framing
+        context.renderOutline(x, y, w, h, isOverlay ? topAccentColor : COL_BORDER_MID);
+        if (w > 2 && h > 2) {
+            context.renderOutline(x - 1, y - 1, w + 2, h + 2, COL_BORDER_DARK);
+        }
     }
 
     /**
-     * 绘制通知并同步清理已过期通知项。
+     * Renders FICSIT ADA-styled toast notifications with a left orange indicator bar.
      */
     static void renderNotifications(GuiGraphics context,
                                     Font font,
@@ -190,11 +246,15 @@ final class TodoScreenRenderSupport {
             int by1 = startY + dy;
             int bx2 = bx1 + boxWidth;
             int by2 = by1 + boxHeight;
-            context.fill(bx1, by1, bx2, by2, TodoScreenNotificationSupport.BOX_BG_COLOR);
-            context.renderOutline(bx1, by1, boxWidth, boxHeight, TodoScreenNotificationSupport.BOX_OUTLINE_COLOR);
-            int tx = bx1 + TodoScreenNotificationSupport.TEXT_LEFT_PADDING;
+
+            // FICSIT Toast Box + 3px Left Orange Accent Bar
+            context.fill(bx1, by1, bx2, by2, 0xF21E2024);
+            context.fill(bx1, by1, bx1 + 3, by2, COL_FICSIT_ORANGE);
+            context.renderOutline(bx1, by1, boxWidth, boxHeight, COL_BORDER_MID);
+
+            int tx = bx1 + TodoScreenNotificationSupport.TEXT_LEFT_PADDING + 2;
             int ty = by1 + (boxHeight - font.lineHeight) / 2;
-            context.drawString(font, Component.nullToEmpty(notification.text), tx, ty, TodoScreenNotificationSupport.TEXT_COLOR, false);
+            context.drawString(font, Component.nullToEmpty(notification.text), tx, ty, TEXT_WHITE, false);
             dy += boxHeight + TodoScreenNotificationSupport.BOX_GAP;
         }
     }

@@ -88,6 +88,7 @@ public final class NeoForgeTodoClient {
         NeoForge.EVENT_BUS.addListener(NeoForgeTodoClient::onRenderGuiPostEvent);
         NeoForge.EVENT_BUS.addListener(NeoForgeTodoClient::onClientLoggingOutEvent);
         NeoForge.EVENT_BUS.addListener(NeoForgeTodoClient::onClientLoggingInEvent);
+        com.todolist.integration.RecipeViewerTodoIntegration.register();
         IEventBus modEventBus = ModLoadingContext.get().getActiveContainer().getEventBus();
         modEventBus.addListener(NeoForgeTodoClient::onRegisterKeyMappingsEvent);
     }

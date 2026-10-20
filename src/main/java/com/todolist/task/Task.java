@@ -378,4 +378,32 @@ public class Task {
                 ", priority=" + priority +
                 '}';
     }
+
+    public enum SectionType {
+        PUBLIC_NOTE,
+        PRIVATE_NOTE,
+        RECIPE
+    }
+
+    private SectionType sectionType = SectionType.RECIPE;
+    private int targetOutputCount = 1; // e.g., Iron Rod x4 -> 4
+    private final List<RecipeIngredient> recipeIngredients = new ArrayList<>();
+
+    public static class RecipeIngredient {
+        public String itemId;
+        public int neededCount;
+
+        public RecipeIngredient(String itemId, int neededCount) {
+            this.itemId = itemId;
+            this.neededCount = neededCount;
+        }
+    }
+
+    public SectionType getSectionType() { return sectionType; }
+    public void setSectionType(SectionType sectionType) { this.sectionType = sectionType; }
+
+    public int getTargetOutputCount() { return targetOutputCount; }
+    public void setTargetOutputCount(int count) { this.targetOutputCount = count; }
+
+    public List<RecipeIngredient> getRecipeIngredients() { return recipeIngredients; }
 }
