@@ -1,59 +1,59 @@
-# 项目待办总览
+# Project To-Do Overview
 
-本文用于记录当前项目的整体改动状态，按 `进行中`、`待同步`、`计划中`、`已完成` 四类维护，便于后续排期、分支同步与回归验证。
+This document tracks the overall status of changes in the current project. It is organized into four categories: `In Progress`, `Pending Sync`, `Planned`, and `Completed`, to facilitate future scheduling, branch synchronization, and regression testing.
 
-更新日期：`2026-09-11`
+Last Updated: `2026-09-11`
 
-## 进行中
+## In Progress
 
-- 暂无
+- None
 
-## 待同步
+## Pending Sync
 
-- 暂无
+- None
 
-## 计划中
+## Planned
 
-- 【feat】游戏内事件触发式完成任务
-- 【feat】支持投影材料列表联动
-- 【feat】支持机械动力材料清单联动
-- 【feat】支持 FTB 团队联动
-- 【feat】支持 AI 生成待办
-- 【feat】支持团队项目任务设置为重复领取 / 重复完成
-- 【feat】支持个人项目跨存档同步
+- [feat] In-game event-triggered quests
+- [feat] Support for linked projection material lists
+- [feat] Support for linked mechanical power material lists
+- [feat] Support for FTB team integration
+- [feat] Support for AI-generated to-do items
+- [feat] Support for setting team project tasks to be repeatedly claimed or completed
+- [feat] Support for syncing personal projects across save files
 
-## 已完成
+## Completed
 
-- 【feat】支持子任务
-- 【fix】修复团队任务中父任务未按直属子任务聚合指派状态参与待领 / 我的视图与领取操作
-- 【fix】优化 HUD 子任务展示，补充子任务显示开关并修正底部统计不计入子任务
-- 【fix】修复父任务展开后切换任务时的列表滚动定位偏移
-- 【fix】修复子任务详情区所属主任务名称过长时超出右侧面板
-- 【feat】支持一键清理已完成项
-- 【feat】增加 GUI 编辑自动保存开关
-- 【fix】修复 H2 模式下 TCP 生命周期切换后复用失效连接，避免“发布局域网退出后再进未发布单人”出现存储不可用
-- 【fix】优化 HUD 展示，将展开态底部“...还有 x 条记录”替换为固定“待办 x | 已办 x”统计
-- 【fix】优化待办界面输入框文案与提示，明确快速新增、标题编辑与标签输入含义
-- 【feat】完成 H2 存储迁移链路，覆盖任务、项目、玩家项目状态与兼容旧数据迁移
-- 【feat】完成 H2 TCP 外部访问能力，支持基础配置、端口回退与账号权限控制
-- 【feat】完成 H2 维护能力，包含健康检查、备份、维护锁与 schema 升级
-- 【feat】完成 H2 查询优化阶段，补齐查询服务与对应离线验证
-- 【fix】修复 H2 模式下 HUD 快速切换闪烁问题
-- 【fix】恢复 H2 模式下个人任务保存与团队切回个人项目的性能优化
-- 【fix】优化 H2 模式下团队保存后切回个人项目的卡顿问题
-- 【fix】修复 NeoForge 下切换 H2 模式后运行时缺少驱动导致数据库不可用的问题
-- 【fix】补充 `storageBackend` 与 `h2BackupOnStart` 的多语言说明注释
-- 【chore】补充本地构建脚本忽略规则与仓库行尾规则
-- 【feat】支持父任务一键批量完成/取消所有直属子任务
-- 【feat】支持团队项目中父任务一键指派与一键领取所有直属子任务（仅处理剩余待分配项）
-- 【fix】修复团队我的视图下批量操作范围与已完成子任务展示
-- 【refactor】强制使用 H2 存储后端，废弃并禁用 NBT 存储模式，减少双模式维护成本
-- 【chore】移除进入世界后向管理员发送的 H2 存储模式与命令提示
+- [feat] Support for subtasks
+- [fix] Fixed an issue where, in team tasks, the parent task’s assignment status was not aggregated based on its direct subtasks in the “Pending” / “My” views and claim operations
+- [fix] Optimized HUD subtask display; added a subtask show/hide toggle and corrected bottom statistics that were not included in subtask counts
+- [fix] Fixed list scroll positioning offset when switching tasks after expanding a parent task
+- [fix] Fixed the parent task name in the subtask details area overflowing the right panel when it was too long
+- [feat] Added support for one-click clearing of completed items
+- [feat] Added an auto-save toggle for GUI editing
+- [fix] Fixed an issue in H2 mode where failed connections were not reused after a TCP lifecycle switch, preventing storage unavailability when “exiting a published LAN session and then re-entering an unpublished single-player session”
+- [fix] Optimized HUD display by replacing the expanded-state bottom text “...x more entries” with a fixed “To-Do x | Done x” count
+- [fix] Optimized text and prompts in the To-Do interface input fields to clarify the meanings of “Quick Add,” “Title Edit,” and “Tag Input”
+- [feat] Completed the H2 storage migration workflow, covering tasks, projects, player project statuses, and compatibility with legacy data migration
+- [feat] Completed H2 TCP external access capabilities, supporting basic configuration, port fallback, and account permission control
+- [feat] Completed H2 maintenance capabilities, including health checks, backups, maintenance locks, and schema upgrades
+- [feat] Completed the H2 query optimization phase, adding query services and corresponding offline validation
+- [fix] Fixed the flickering issue during quick HUD switching in H2 mode
+- [fix] Restored performance optimization for saving personal tasks and switching back to personal projects from team projects in H2 mode
+- [fix] Optimized performance to resolve stuttering when switching back to a personal project after saving a team project in H2 mode
+- [fix] Fixed an issue where the database became unavailable due to a missing driver at runtime after switching to H2 mode in NeoForge
+- [fix] Added multilingual documentation comments for `storageBackend` and `h2BackupOnStart`
+- [chore] Added ignore rules for local build scripts and end-of-line rules for the repository
+- [feat] Added support for parent tasks to batch-complete or cancel all direct subtasks with a single click
+- [feat] Added support for parent tasks in team projects to assign or claim all direct subtasks with a single click (processes only remaining unassigned items)
+- [fix] Fixed the display of batch operation scope and completed subtasks in the “My View” section of team projects
+- [refactor] Enforced the use of the H2 storage backend; deprecated and disabled the NBT storage mode to reduce maintenance costs associated with dual modes
+- [chore] Removed the H2 storage mode prompt and command prompt sent to administrators upon entering the world
 
-## 维护约定
+## Maintenance Conventions
 
-- 新需求默认先进入 `计划中`
-- 开始实际实现后移动到 `进行中`
-- 在当前分支完成开发并通过验证后，先移动到 `待同步`
-- 完成其他维护分支同步后，再从 `待同步` 移动到 `已完成`
-- 如果后续需要拆分优先级，可在条目前追加 `P0 / P1 / P2`
+- New requests are set to `Planned` by default
+- Move to `In Progress` once actual implementation begins
+- After development is complete and verified on the current branch, move to `Pending Sync`
+- Move from `Pending Sync` to `Completed` after synchronization with other maintenance branches is finished
+- If priority needs to be assigned later, prefix the item with `P0 / P1 / P2`

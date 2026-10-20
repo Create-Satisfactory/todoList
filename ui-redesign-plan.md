@@ -1,481 +1,168 @@
-# TodoList GUI 重构示意图与开发计划
+# TodoList GUI Redesign Concept Diagram and Development Plan
 
-## 1. 目标
-本轮不做 Microsoft To Do 的像素级复刻，而是对齐它在信息组织上的核心优点：安静、聚焦、连续、低负担。
+## 1. Objectives
+This round of updates will not be a pixel-for-pixel replica of Microsoft To Do, but rather will align with its core strengths in information organization: calm, focused, seamless, and low-stress.
 
-本次改版重点解决以下问题：
-- 明确区分“个人空间”和“团队空间”
-- 让主界面中的保存、取消、配置、筛选、详情抽屉职责更稳定
-- 让任务优先级表达回归已有产品认知，不再临时改成 `P1 / P2` 文本
-- 统一主界面、弹窗、配置页、HUD 的视觉语言
-- 为后续 GUI 重构与测试提供稳定基线
+This redesign will focus on addressing the following issues:
+- Clearly distinguish between “Personal Space” and “Team Space”
+- Ensure more consistent functionality for the “Save,” “Cancel,” “Settings,” “Filter,” and “Details” drawers on the main interface
+- Revert task priority labeling to align with existing product conventions, rather than temporarily using `P1 / P2` text
+- Unify the visual language across the main interface, pop-ups, settings pages, and HUD
+- Provide a stable baseline for future GUI refactoring and testing
 
-## 2. 设计定位
+## 2. Design Positioning
 
-### 2.1 体验关键词
-- 轻盈：弱化厚重描边和过多功能噪音
-- 聚焦：中间任务区始终是主角
-- 连续：新增、勾选、切换、查看详情保持一条操作流
-- 熟悉：参考 Microsoft To Do 的阅读节奏
-- 一致：主界面、弹窗和 HUD 属于同一套产品语言
+### 2.1 Experience Keywords
+- Lightness: Minimize heavy outlines and excessive functional clutter
+- Focus: The central task area always takes center stage
+- Continuity: Create a seamless flow for adding, checking off, switching, and viewing details
+- Familiarity: Model the reading rhythm after Microsoft To Do
+- Consistency: The main interface, pop-ups, and HUD share a unified product language
 
-### 2.2 视觉语气
-- 外层仍保持浮于游戏画面上的悬浮工作台感受
-- 左侧导航、中间主区、右侧抽屉形成三层亮度层级
-- 重点色只用于选中态、主按钮和优先级提示
-- 字号分层明确：标题、分组、正文、辅助信息四级
-- HUD 与主界面保持一致的色彩语义，但保留更高透明度和更紧凑密度
+### 2.2 Visual Tone
+- The outer layer retains the feel of a floating workspace overlaid on the game screen
+- The left-side navigation, central main area, and right-side drawer form three tiers of brightness
+- Accent colors are used only for selected states, primary buttons, and priority indicators
+- Clear typographic hierarchy: four levels—headings, groups, body text, and supplementary information
+- The HUD maintains the same color semantics as the main interface but features higher transparency and a more compact layout
 
-## 3. 核心结构决策
+## 3. Core Structural Decisions
 
-### 3.1 空间切换
-主界面左侧标题下方保留空间切换器：
-- `个人空间 | 团队空间`
-- 切换空间后，视图区立即切换
-- 个人空间只显示 `我的`
-- 团队空间只显示 `待分配 / 全部 / 我的`
+### 3.1 Space Switching
+The space switcher is located below the title on the left side of the main interface:
+- `Personal Space | Team Space`
+- The view area updates immediately after switching spaces
+- Personal space displays only `My`
+- Team space displays only `Unassigned / All / My`
 
-### 3.2 主界面三段式结构
-- 左侧导航区：空间、视图、项目
-- 中间主任务区：标题、搜索、筛选、任务列表、快速新增
-- 右侧详情抽屉：任务上下文编辑
+### 3.2 Three-Pane Structure of the Main Interface
+- Left navigation pane: Space, View, Project
+- Central main task area: Title, Search, Filter, Task List, Quick Add
+- Right-side details drawer: Task context editing
 
-### 3.3 固定区规则
-- 左侧项目操作按钮固定在侧栏底部
-- 中间快速新增输入框固定在主内容底部
-- 主界面右上角固定显示 `保存`、`取消`、`配置`
+### 3.3 Fixed Area Rules
+- Project action buttons on the left are fixed at the bottom of the sidebar
+- The Quick Add input field in the center is fixed at the bottom of the main content area
+- `Save`, `Cancel`, and `Configure` are permanently displayed in the top-right corner of the main interface
 
-### 3.4 滚动区规则
-以下区域在内容超出可视范围时必须出现竖向滚动条：
-- 左侧项目列表
-- 主界面任务列表
-- 右侧详情抽屉内容区
-- Project Settings 中的成员列表
-- 指派他人中的成员列表
-- 添加成员中的成员列表
-- 配置页中的配置列表
+### 3.4 Scroll Area Rules
+Vertical scrollbars must appear in the following areas when content extends beyond the visible range:
+- Left-side item list
+- Main interface task list
+- Right-side details drawer content area
+- Member list in Project Settings
+- Member list in “Assign to Others”
+- Member list in “Add Members”
+- Configuration list on the Configuration page
 
-滚动条要求：
-- 使用细窄竖向滚动条
-- 轨道弱化，滑块可见但不过度抢眼
-- 固定区与滚动区要明显分层，避免滚动时把底部按钮或顶部操作一起卷走
+Scrollbar Requirements:
+- Use narrow vertical scrollbars
+- Keep the track subtle; the slider should be visible but not overly conspicuous
+- Clearly separate fixed areas from scrollable areas to prevent bottom buttons or top controls from being scrolled away
 
-## 4. 主界面详细规则
+## 4. Detailed Rules for the Main Interface
 
-### 4.1 左侧导航区
-结构：
-- 顶部：应用名
-- 顶部下方：空间切换器
-- 中部：视图列表
-- 中下部：项目搜索与项目列表
-- 底部固定区：`新建项目`、`编辑`、`删除`
+### 4.1 Left Navigation Area
+Structure:
+- Top: App name
+- Below the top: Space switcher
+- Middle: View list
+- Lower middle: Project search and project list
+- Bottom fixed area: `New Project`, `Edit`, `Delete`
 
-规则：
-- 三个项目按钮必须是明确的按钮样式，不能做成普通文字
-- `新建项目`为主强调按钮
-- `删除`使用风险色
-- 项目列表滚动时，底部按钮区位置不变
+Rules:
+- The three project buttons must have a distinct button style; they must not be presented as plain text
+- `New Project` is the primary call-to-action button
+- `Delete` uses a warning color
+- When the project list is scrolling, the position of the bottom button area remains fixed
 
-### 4.2 中间主任务区
-结构：
-- 顶部左侧：当前列表标题 + 状态摘要
-- 顶部右侧：`保存`、`取消`、`配置`
-- 搜索筛选区：搜索框 + 单个下拉筛选按钮
-- 列表区：未完成在上，已完成折叠在下
-- 底部固定输入区：带 `+` 图标的快速新增输入框
+### 4.2 Central Main Task Area
+Structure:
+- Top left: Current list title + status summary
+- Top right: `Save`, `Cancel`, `Configure`
+- Search and filter area: Search box + single dropdown filter button
+- List area: Unfinished items at the top, completed items collapsed at the bottom
+- Fixed input area at the bottom: Quick-add input field with a `+` icon
 
-规则：
-- 当前只保留一个筛选入口：`按优先级 v`
-- 筛选入口要做成可扩展下拉入口，为后续新增更多条件预留空间
-- 快速新增框始终固定在底部
-- 任务列表本身属于滚动区，列表超高时显示竖向滚动条
+Rules:
+- Currently, only one filter option is retained: `By Priority v`
+- The filter option should be designed as an expandable dropdown to allow for the addition of more conditions in the future
+- The quick-add field is always fixed at the bottom
+- The task list itself is a scrollable area; a vertical scrollbar appears when the list is too tall
 
-### 4.3 任务条目
-任务条目优先级表达恢复为项目既有风格，不再使用 `P1 / P2 / P3` 文本。
+### 4.3 Task Entries
+The priority display for task entries reverts to the project’s existing style; the text `P1 / P2 / P3` is no longer used.
 
-每条任务包含：
-- 优先级色块
-- 勾选框
-- 任务标题
-- 辅助信息：标签、项目、分配对象等
+Each task includes:
+- Priority color block
+- Checkbox
+- Task title
+- Additional information: tags, projects, assignees, etc.
 
-优先级色块规则：
-- 高优先级：红色
-- 中优先级：黄色
-- 低优先级：绿色
-- 色块放在勾选框前方
-- 已完成任务仍保留优先级色块，但整体对比度降低
+Priority color block rules:
+- High priority: red
+- Medium priority: yellow
+- Low priority: green
+- The color block is positioned in front of the checkbox
+- Completed tasks retain their priority color block, but the overall contrast is reduced
 
-表现规则：
-- 当前选中项使用更明显底色
-- 已完成项降低文字对比度
-- 长标题在列表中可截断，在详情中完整展示
+Display rules:
+- The currently selected item uses a more prominent background color
+- Text contrast is reduced for completed items
+- Long titles may be truncated in the list but are displayed in full in the details view
 
-### 4.4 右侧详情抽屉
-结构：
-- 第一行：独立的关闭按钮行
-- 第二行：任务标题区域
-- 第三行开始：状态、项目信息、描述、标签、操作按钮
+### 4.4 Right-Side Details Drawer
+Structure:
+- First row: Dedicated row for the close button
+- Second row: Task title area
+- Starting from the third row: Status, project information, description, tags, and action buttons
 
-规则：
-- 关闭按钮独占一行，不与标题同行
-- 标题是可点击选中并进入编辑状态的，这一点必须在文档和实现中保留
-- 保存按钮从抽屉中移除，统一放在主界面右上角
-- 标签作为独立可编辑项，单独成一行或一个独立卡片
-- 团队空间中的 `领取任务`、`放弃任务`、`指派他人` 使用一行一个纵向按钮，避免小尺寸下被挤出
-- 个人空间中不显示这三个团队操作按钮
-- 详情抽屉内容区属于滚动区，标题与关闭按钮不随描述、标签、按钮区一起滚动
+Rules:
+- The close button occupies its own row and does not share a row with the title
+- The title is clickable to select and enter edit mode; this behavior must be preserved in both documentation and implementation
+- The save button is removed from the drawer and uniformly placed in the top-right corner of the main interface
+- Tags are treated as independent, editable items and appear on a separate line or as a standalone card
+- In Team Spaces, the `Claim Task`, `Abandon Task`, and `Assign to Another User` buttons use a single vertical button per line to prevent them from being squeezed out on smaller screens
+- These three team action buttons are not displayed in Personal Spaces
+- The content area of the details drawer is a scrollable region; the title and close button do not scroll along with the description, tags, and button area
 
-### 4.5 已完成分组
-规则：
-- 默认收起：`> 已完成 N 项`
-- 展开后：`v 已完成 N 项`
-- 已完成项与未完成项共享同一任务条目结构，仍保留优先级色块
+### 4.5 Completed Group
+Rules:
+- Collapsed by default: `> N items completed`
+- When expanded: `v N items completed`
+- Completed items share the same task entry structure as uncompleted items and retain priority color blocks
 
-## 5. 主界面示意图
+## 5. Main Interface Diagram
 
-### 5.1 个人空间默认态
+### 5.1 Personal Space (Default State)
 ```text
-+------------------------------------------------------------------------------------------------------------------+
-| TodoList                                          我的                                                   [保存][取消][配置] |
-|------------------------------------------------------------------------------------------------------------------|
-| 导航区                                  | 主任务区                                                                  |
++------- -----------------------------------------------------------------------------------------------------------+
+| TodoList                                          My                                                   [Save][Cancel][Settings] |
+|----------------------------------------- -------------------------------------------------------------------------|
+| Navigation Area                                  | Main Task Area                                                                  |
+|----------------------------------------|------------ ---------------------------------------------------------------|
+| Space                                    | My                                                                      |
+| [Personal Space] [Team Space]                   | Today’s Recommendation: Complete 3 High-Priority Tasks First                                             |
+|--------------------------- -------------| [Search Tasks.................................................] [By Priority v]    |
+| View                                    |---------------------------------------------------------------------------|
+| [●] My                                | Unfinished                                                                     |
+|----------------------------------------| [Red] [ ] Unify HUD styles                                 [UI]           |
+| Item                                    | [Yellow] [ ] Handle HUD synchronization boundaries in single-player mode                        [Bug]          |
+| [Search Tasks............................]   | [Green] [ ] Adjust Default Empty State Text                                [UX]           |
+| [★] Default Tasks                       12  |--------------------------------------------------- ------------------------|
+| [ ] Construction Plans                         4  | > 3 items completed                                                              |
+| [ ] Survival Organization                         7  |                                                                           |
+|----------------------------------------|------------------------------------- --------------------------------------|
+| [New Project]      [Edit]      [Delete]     | [+] Quickly add a task...                                                        |
++------------------------------------------------------------------- -----------------------------------------------+
+```
+
+### 5.2 Team Space Default State
+```text
++------------------------------------------------------------------------------------------ ------------------------+
+| TodoList                                          Development Team                                                 [Save][Cancel][Configure] |
+|----------------------------------------------------------------------------------------------------------------- -|
+| Navigation Area                                  | Main Task Area                                                                  |
 |----------------------------------------|---------------------------------------------------------------------------|
-| 空间                                    | 我的                                                                      |
-| [个人空间] [团队空间]                   | 今天建议先完成 3 个高优先级任务                                             |
-|----------------------------------------| [搜索任务.................................................] [按优先级 v]    |
-| 视图                                    |---------------------------------------------------------------------------|
-| [●] 我的                                | 未完成                                                                     |
-|----------------------------------------| [红] [ ] 完成 HUD 样式统一                                 [UI]           |
-| 项目                                    | [黄] [ ] 处理单人模式下 HUD 同步边界                        [Bug]          |
-| [搜索项目............................]   | [绿] [ ] 调整默认空状态文案                                [UX]           |
-| [★] 默认项目                       12  |---------------------------------------------------------------------------|
-| [ ] 建筑计划                         4  | > 已完成 3 项                                                              |
-| [ ] 生存整理                         7  |                                                                           |
-|----------------------------------------|---------------------------------------------------------------------------|
-| [新建项目]      [编辑]      [删除]     | [+] 快速新增任务...                                                        |
-+------------------------------------------------------------------------------------------------------------------+
-```
-
-### 5.2 团队空间默认态
-```text
-+------------------------------------------------------------------------------------------------------------------+
-| TodoList                                          开发组                                                 [保存][取消][配置] |
-|------------------------------------------------------------------------------------------------------------------|
-| 导航区                                  | 主任务区                                                                  |
-|----------------------------------------|---------------------------------------------------------------------------|
-| 空间                                    | 开发组                                                                     |
-| [个人空间] [团队空间]                   | 当前处于团队空间，可查看待分配、全部和我的任务                               |
-|----------------------------------------| [搜索任务.................................................] [按优先级 v]    |
-| 视图                                    |---------------------------------------------------------------------------|
-| [●] 待分配                              | 未完成                                                                     |
-| [ ] 全部                                | [红] [ ] 完成 HUD 样式统一                              [UI] [SpaceHouse]  |
-| [ ] 我的                                | [黄] [ ] 对齐团队项目权限提示                            [Team]           |
-|----------------------------------------| [绿] [ ] 优化搜索结果空状态                              [UX]             |
-| 项目                                    |---------------------------------------------------------------------------|
-| [搜索项目............................]   | > 已完成 1 项                                                              |
-| [★] 开发组                          8  |                                                                           |
-| [ ] 团队项目                        4  |                                                                           |
-| [ ] 服务器运营                      6  |---------------------------------------------------------------------------|
-|----------------------------------------| [+] 快速新增任务...                                                        |
-| [新建项目]      [编辑]      [删除]     |                                                                           |
-+------------------------------------------------------------------------------------------------------------------+
-```
-
-### 5.3 团队空间详情展开态
-```text
-+--------------------------------------------------------------------------------------------------------------------------------+
-| TodoList                                          开发组                                                         [保存][取消][配置] |
-|--------------------------------------------------------------------------------------------------------------------------------|
-| 导航区                                  | 主任务区                                              | 任务详情                            |
-|----------------------------------------|-------------------------------------------------------|-------------------------------------|
-| 空间                                    | 开发组                                                 | [关闭]                              |
-| [个人空间] [团队空间]                   | 当前处于团队空间，可查看待分配、全部和我的任务          |-------------------------------------|
-|----------------------------------------| [搜索任务......................................] [按优先级 v] | 标题：完成 HUD 样式统一              |
-| 视图                                    |-------------------------------------------------------| 提示：点击标题可编辑                 |
-| [●] 待分配                              | [红] [ ] 完成 HUD 样式统一           <- 当前选中        |-------------------------------------|
-| [ ] 全部                                | [黄] [ ] 对齐团队项目权限提示                           | 状态：未完成                        |
-| [ ] 我的                                | [绿] [ ] 优化搜索结果空状态                             | 项目：开发组                        |
-|----------------------------------------|-------------------------------------------------------| 分配：SpaceHouse                    |
-| 项目                                    | > 已完成 1 项                                          | 优先级：高                          |
-| [搜索项目............................]   |-------------------------------------------------------|-------------------------------------|
-| [★] 开发组                          8  | [+] 快速新增任务...                                    | 描述                                |
-| [ ] 团队项目                        4  |                                                       | 统一主界面与 HUD 的视觉语言。       |
-| [ ] 服务器运营                      6  |                                                       |-------------------------------------|
-|----------------------------------------|                                                       | 标签                                |
-| [新建项目]      [编辑]      [删除]     |                                                       | [UI] [HUD] [重构]                  |
-|                                        |                                                       |-------------------------------------|
-|                                        |                                                       | [领取任务]                          |
-|                                        |                                                       | [放弃任务]                          |
-|                                        |                                                       | [指派他人]                          |
-+--------------------------------------------------------------------------------------------------------------------------------+
-```
-
-### 5.4 个人空间详情展开态
-```text
-+--------------------------------------------------------------------------------------------------------------------------------+
-| TodoList                                          我的                                                           [保存][取消][配置] |
-|--------------------------------------------------------------------------------------------------------------------------------|
-| 导航区                                  | 主任务区                                              | 任务详情                            |
-|----------------------------------------|-------------------------------------------------------|-------------------------------------|
-| 空间                                    | 我的                                                   | [关闭]                              |
-| [个人空间] [团队空间]                   | 今天建议先完成 3 个高优先级任务                         |-------------------------------------|
-|----------------------------------------| [搜索任务......................................] [按优先级 v] | 标题：处理单人模式下 HUD 同步边界    |
-| 视图                                    |-------------------------------------------------------| 提示：点击标题可编辑                 |
-| [●] 我的                                | [红] [ ] 完成 HUD 样式统一                              |-------------------------------------|
-|----------------------------------------| [黄] [ ] 处理单人模式下 HUD 同步边界 <- 当前选中         | 状态：未完成                        |
-| 项目                                    | [绿] [ ] 调整默认空状态文案                             | 项目：默认项目                      |
-| [搜索项目............................]   |-------------------------------------------------------| 优先级：中                          |
-| [★] 默认项目                       12  | > 已完成 3 项                                          |-------------------------------------|
-| [ ] 建筑计划                         4  |-------------------------------------------------------| 描述                                |
-| [ ] 生存整理                         7  | [+] 快速新增任务...                                    | 校验真正单人环境下 HUD 数据来源与    |
-|----------------------------------------|                                                       | 个人任务隔离逻辑。                  |
-| [新建项目]      [编辑]      [删除]     |                                                       |-------------------------------------|
-|                                        |                                                       | 标签                                |
-|                                        |                                                       | [Bug] [HUD]                        |
-+--------------------------------------------------------------------------------------------------------------------------------+
-```
-
-### 5.5 已完成区展开态
-```text
-+------------------------------------------------------------------------------------------------------------------+
-| TodoList                                          我的                                                   [保存][取消][配置] |
-|------------------------------------------------------------------------------------------------------------------|
-| 导航区                                  | 主任务区                                                                  |
-|----------------------------------------|---------------------------------------------------------------------------|
-| 空间                                    | 我的                                                                      |
-| [个人空间] [团队空间]                   | 今天建议先完成 3 个高优先级任务                                             |
-|----------------------------------------| [搜索任务.................................................] [按优先级 v]    |
-| 视图                                    |---------------------------------------------------------------------------|
-| [●] 我的                                | 未完成                                                                     |
-|----------------------------------------| [红] [ ] 完成 HUD 样式统一                                 [UI]           |
-| 项目                                    | [黄] [ ] 处理单人模式下 HUD 同步边界                        [Bug]          |
-| [搜索项目............................]   |---------------------------------------------------------------------------|
-| [★] 默认项目                       12  | v 已完成 3 项                                                              |
-| [ ] 建筑计划                         4  | [黄] [x] 补充 TodoScreen 测试覆盖                           [Test]         |
-| [ ] 生存整理                         7  | [绿] [x] 梳理项目切换时的抽屉关闭逻辑                       [Refactor]     |
-|                                        | [红] [x] 调整主标题与副标题层级                             [UI]           |
-|----------------------------------------|---------------------------------------------------------------------------|
-| [新建项目]      [编辑]      [删除]     | [+] 快速新增任务...                                                        |
-+------------------------------------------------------------------------------------------------------------------+
-```
-
-## 6. 其它 GUI 统一设计
-
-### 6.1 统一风格规则
-- 所有弹窗使用居中浮层卡片
-- 标题明确，右下角是主操作区
-- 输入框、成员列表、风险提示与主界面共用同一套圆角与配色
-
-### 6.2 添加项目 AddProjectScreen
-```text
-+----------------------------------------------------------------+
-| 添加项目                                                        |
-|----------------------------------------------------------------|
-| 名称                                                            |
-| [请输入项目名称..............................................]  |
-|                                                                |
-| 空间归属                                                        |
-| [个人空间 v]                                                   |
-|                                                                |
-| 说明                                                            |
-| 新项目会出现在当前空间的项目列表中。                            |
-|                                                                |
-|                                      [取消] [创建项目]          |
-+----------------------------------------------------------------+
-```
-
-### 6.3 项目设置 ProjectSettingsScreen
-```text
-+------------------------------------------------------------------------------------------------------+
-| 项目设置                                                             [团队空间] [成员可创建：开启 v] |
-|------------------------------------------------------------------------------------------------------|
-| 项目名称                                                                                             |
-| [开发组.........................................................................................]   |
-|                                                                                                      |
-| 成员列表                                                                      [添加成员]             |
-| [搜索成员.................................................................]                         |
-|                                                                                                      |
-| [owner]                                            [项目经理 v]   [移出]                           |
-| [alice]                                            [成员 v]       [移出]                           |
-| [bob]                                              [成员 v]       [移出]                           |
-|                                                                                                      |
-|                                                                      [取消] [保存]                  |
-+------------------------------------------------------------------------------------------------------+
-```
-
-规则：
-- “空间归属”放到标题行右侧
-- “成员可创建任务”显示为可点击切换按钮
-- “成员列表”标题行右侧放“添加成员”按钮
-- 成员列表下方必须有搜索栏
-- 角色在右侧对齐，做成可切换按钮
-- “移出”按钮放在角色右边
-- 成员列表属于滚动区，超出高度后显示竖向滚动条
-
-### 6.4 指派成员 AssignPlayerScreen
-```text
-+----------------------------------------------------------------+
-| 指派他人                                                        |
-|----------------------------------------------------------------|
-| 搜索成员                                                        |
-| [搜索成员....................................................] |
-|                                                                |
-| [owner]                                                        |
-| [alice]                                                        |
-| [bob]                                                          |
-|                                                                |
-|                                                  [取消]        |
-+----------------------------------------------------------------+
-```
-
-规则：
-- 取消按钮不得超出卡片边界
-- 成员列表属于滚动区，超出高度后显示竖向滚动条
-
-### 6.5 添加成员 AddMemberScreen
-```text
-+----------------------------------------------------------------+
-| 添加成员                                                        |
-|----------------------------------------------------------------|
-| 搜索成员                                                        |
-| [搜索成员....................................................] |
-|                                                                |
-| [alice]                                             [添加]     |
-| [bob]                                               [添加]     |
-|                                                                |
-|                                                  [返回]        |
-+----------------------------------------------------------------+
-```
-
-规则：
-- 成员列表属于滚动区，超出高度后显示竖向滚动条
-
-### 6.6 配置 ConfigScreen
-```text
-+------------------------------------------------------------------------------------------------------+
-| 配置                                                                                                 |
-|------------------------------------------------------------------------------------------------------|
-| HUD 宽度                [ xxx ]            HUD 最大高度           [ xxx ]                            |
-| HUD 待办数              [ xxx ]            HUD 已办数             [ xxx ]                            |
-| HUD 显示                [ 开 / 关 ]        HUD 透明度             [ xxx ]                            |
-| HUD 列表项目来源        [ 当前项目 v ]                                                   |
-|                                                                                                      |
-| HUD 预览                                                                                             |
-| [可拖动 HUD 预览块，默认出现在右上角.........................................................]      |
-|                                                                                                      |
-|                                                                      [取消] [保存并应用]            |
-+------------------------------------------------------------------------------------------------------+
-```
-
-规则：
-- 配置项列表使用双列布局，一行可放两个配置项
-- 配置列表属于滚动区，超出高度后显示竖向滚动条
-- HUD 预览块默认停靠在预览区右上角，并支持拖动预览目标位置
-
-### 6.7 删除确认 ConfirmDeleteProjectScreen
-```text
-+--------------------------------------------------------------+
-| 删除项目                                                     |
-|--------------------------------------------------------------|
-| 确定要删除项目“开发组”吗？                                   |
-| 删除后将无法撤销。                                           |
-|                                                              |
-|                                      [取消] [确认删除]       |
-+--------------------------------------------------------------+
-```
-
-## 7. HUD 设计
-
-### 7.1 HUD 目标
-HUD 需要延续当前产品习惯，但提升阅读性与层级清晰度，不应完全改成主界面的小卡片复制品。
-
-### 7.2 HUD 结构
-- 标题行：`待办列表 - 个人 / 团队`，并提示 `按 H 展开/收起`
-- 待办项列表：按优先级色块 + 文本的方式展示
-- 已完成分隔区：使用轻分隔线和“已完成”标签
-- 底部截断提示：例如“... 还有 12 项”
-
-### 7.3 HUD 视觉规则
-- HUD 背景保留半透明深色风格，适应游戏画面
-- 文字使用暖白或淡黄，避免纯白刺眼
-- 高 / 中 / 低优先级使用红 / 黄 / 绿
-- HUD 中的优先级也统一使用色块表达，不只用文字颜色
-- 已完成项降低透明度，但仍显示优先级色块
-- 折叠状态下只显示标题，展开后显示列表
-
-### 7.4 HUD 示意图
-```text
-+----------------------------------------+
-| 待办列表 - 个人  (按 H 展开/收起)      |
-| [■红] task1                            |
-| [■黄] [tag1] task3                     |
-| [■黄] task4                            |
-| [■黄] t21                              |
-| [■黄] t22                              |
-| [■黄] t23                              |
-| [■黄] aaa                              |
-| [■黄] bbb                              |
-| [■黄] ccc                              |
-| [■黄] ddd                              |
-| ---- 已完成 ----                       |
-| [■黄] task5                            |
-| ... 还有 12 项                         |
-+----------------------------------------+
-```
-
-## 8. 关键交互规则
-- 切换空间后，视图区必须同步切换
-- 左侧项目按钮固定在底部，不随列表滚动
-- 快速新增输入框固定在主内容底部
-- 已完成分组使用 `>` / `v` 展示收起状态
-- 详情抽屉的关闭按钮独占一行
-- 详情标题支持点击进入编辑状态
-- 团队空间中的详情按钮纵向排列
-- 个人空间中不显示领取、放弃、指派他人
-- Project Settings 中角色按钮支持切换，成员支持移出
-- Config 中必须带可拖动的 HUD 预览块
-- 所有定义为滚动区的列表都要有明确的竖向滚动条表现
-
-## 9. 开发排期
-
-### P0
-- 空间切换器接入
-- 优先级色块替换 `P1 / P2 / P3`
-- 右上角保存 / 取消 / 配置固定布局
-- 底部快速新增固定布局
-- 详情抽屉关闭行、标题可编辑、团队按钮纵向布局
-- Project Settings 与 Config 结构重做
-
-### P1
-- 按优先级下拉筛选
-- 已完成分组展开 / 收起态
-- HUD 新样式与预览块
-- 小屏和高 GUI 缩放下的布局重排
-
-### P2
-- 抽屉动画
-- Hover / Selected / Completed 状态细化
-- HUD 拖动与透明度交互打磨
-
-## 10. TDD 开发方式
-- 基于现有 `common:guiSystemTest` 扩展，不新建第二套测试框架
-- 先写失败测试，再实现，再回归
-
-第一批测试建议覆盖：
-- 空间切换后视图列表正确切换
-- 优先级色块显示正确
-- 个人空间与团队空间详情按钮可见性正确
-- 快速新增框固定显示并在 Enter 后保持焦点
-- 关闭按钮、标题编辑、已完成展开收起逻辑正确
-
-第二批测试建议覆盖：
-- Project Settings 成员搜索、角色切换、移出逻辑
-- Config 中 HUD 配置字段与预览块显示
-- HUD 折叠 / 展开与条目来源正确
-- 高 GUI 缩放下布局不越界
-
-## 11. 假设
-- 文档文件继续放在仓库根目录
-- 示意图继续使用 ASCII，便于在 Markdown 中直接查看
-- Pencil 原型用于确认层级、位置、状态和视觉语言，不代替后续代码实现中的细节微调
+| Space                                    | Development Team                                                                     |
+| [Personal Space
